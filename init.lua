@@ -7,12 +7,14 @@ vim.g.mapleader = ","
 vim.g.localleader = "\\"
 
 -- IMPORTS
-require('vars')      -- Variables
-require('opts')      -- Options
-require('keys')      -- Keymaps
-require('plug')      -- Plugins
-require('lsp_config')
 
+require('vars')      -- Variables
+
+require('keys')      -- Keymaps
+
+require('plug')      -- Plugin
+require('lsp_config')
+require('opts')      -- Options
 -- PLUGINS: Add this section
 require('nvim-tree').setup{}
 

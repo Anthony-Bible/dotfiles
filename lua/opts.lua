@@ -37,4 +37,4 @@ opt.splitbelow = true            -- bool: Place new window below the current one
 -- [[ Theme ]]
 opt.syntax = "ON"                -- str:  Allow syntax highlighting
 opt.termguicolors = true         -- bool: If term supports ui color then enable
-cmd('colorscheme dracula')       -- cmd:  Set the colorscheme
+cmd('colorscheme nord')       -- cmd:  Set the colorscheme
