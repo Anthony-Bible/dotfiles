@@ -5,7 +5,7 @@ local map = vim.api.nvim_set_keymap
 map('i', 'jk', '', {})
 
 -- Toggle nvim-tree
-map('n', 'n', [[:NvimTreeToggle]], {})
+map('n', 't', [[:NvimTreeToggle]], {})
 --map('n', 'l', [[:IndentLinesToggle]], {})
-map('n', 't', [[:TagbarToggle]], {})
+map('n', 'tt', [[:TagbarToggle]], {})
 map('n', 'ff', [[:Telescope find_files]], {})
