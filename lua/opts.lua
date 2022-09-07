@@ -38,3 +38,6 @@ opt.splitbelow = true            -- bool: Place new window below the current one
 opt.syntax = "ON"                -- str:  Allow syntax highlighting
 opt.termguicolors = true         -- bool: If term supports ui color then enable
 cmd('colorscheme nord')       -- cmd:  Set the colorscheme
+
+-- Time in milliseconds to wait for a mapped sequence to complete.
+opt.timeoutlen = 300

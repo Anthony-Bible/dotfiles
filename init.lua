@@ -3,8 +3,9 @@
 -- LEADER
 -- These keybindings need to be defined before the first /
 -- is called; otherwise, it will default to "\"
-vim.g.mapleader = ","
-vim.g.localleader = "\\"
+vim.api.nvim_set_keymap("", "<Space>", "<Nop>", { noremap = true, silent = true })
+vim.g.mapleader = " "
+vim.g.localleader = " "
 
 -- IMPORTS
 
@@ -34,4 +35,13 @@ vim.cmd([[
   augroup end
 ]])
 
+
+vim.cmd([[set showtabline=2]])
 --call deoplete#custom#option('omni_patterns', { 'go': '[^. *\t]\.\w*' })
+vim.api.nvim_create_autocmd("User", {
+	pattern = "DevcontainerBuildProgress",
+	callback = function()
+		vim.cmd("redrawstatus")
+	end,
+})
+
