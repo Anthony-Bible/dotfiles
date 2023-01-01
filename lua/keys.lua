@@ -16,3 +16,10 @@ map('i', ',t', '<Esc>:tabnew<CR>',{})
 -- Better indent
 map("v", "<", "<gv", {})
 map("v", ">", ">gv", {})
+
+-- ALE
+
+map('n', '<Leader>lf', '<Cmd>ALEFix<CR>', {})
+map('n', '<Leader>lh', '<Cmd>ALEHover<CR>', {})
+map('n', '<Leader>li', '<Cmd>ALEInfo<CR>', {})
+map('n', '<Leader>lr', '<Cmd>ALERename<CR>', {})

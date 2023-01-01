@@ -16,6 +16,7 @@ require('keys')      -- Keymaps
 require('plug')      -- Plugin
 require('lsp_config')
 require('opts')      -- Options
+require('ale') -- ale setup
 -- PLUGINS: Add this section
 require('nvim-tree').setup{}
 
@@ -25,7 +26,7 @@ require('lualine').setup {
     theme = 'dracula-nvim'
   }
 }
-require('nvim-autopairs').setup{} 
+require('nvim-autopairs').setup{}
 vim.cmd([[
   augroup packer_user_config
     autocmd!
@@ -44,4 +45,3 @@ vim.api.nvim_create_autocmd("User", {
 		vim.cmd("redrawstatus")
 	end,
 })
-

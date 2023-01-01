@@ -22,7 +22,8 @@ return require('packer').startup(function(use)
   use { 'Mofiqul/dracula.nvim' }
   use 'shaunsingh/nord.nvim'
 
-
+use { 'mattn/emmet-vim' }
+use {'dense-analysis/ale'}
   -- [[ Dev ]]
   use {
     'nvim-telescope/telescope.nvim',                 -- fuzzy finder
@@ -45,7 +46,6 @@ return require('packer').startup(function(use)
     }
   end
 }
-
 use {
   'https://codeberg.org/esensar/nvim-dev-container',
   requires = { 'nvim-treesitter/nvim-treesitter' },
@@ -118,4 +118,6 @@ use { 'SirVer/ultisnips' }
     require('packer').sync()
   end
 end)
+
+
 
