@@ -21,6 +21,7 @@ return require('packer').startup(function(use)
   }
   use { 'Mofiqul/dracula.nvim' }
   use 'shaunsingh/nord.nvim'
+  use 'github/copilot.vim'
 
 use { 'mattn/emmet-vim' }
 use {'dense-analysis/ale'}
@@ -49,7 +50,7 @@ use {'dense-analysis/ale'}
 use {
   'https://codeberg.org/esensar/nvim-dev-container',
   requires = { 'nvim-treesitter/nvim-treesitter' },
-  config = function() 
+  config = function()
     require("devcontainer").setup{
 	terminal_handler = function(command)
 		local laststatus = vim.o.laststatus
@@ -118,6 +119,3 @@ use { 'SirVer/ultisnips' }
     require('packer').sync()
   end
 end)
-
-
-
