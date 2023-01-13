@@ -31,10 +31,18 @@ vim.cmd([[
   augroup packer_user_config
     autocmd!
     autocmd BufWritePost plugins.lua source <afile> | PackerCompile
-    autocmd BufWritePre *.go lua vim.lsp.buf.formatting()
-    autocmd BufWritePre *.go lua goimports(1000)
   augroup end
 ]])
+
+
+local format_sync_grp = vim.api.nvim_create_augroup("GoImport", {})
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = "*.go",
+  callback = function()
+   require('go.format').goimport()
+  end,
+  group = format_sync_grp,
+})
 
 
 vim.cmd([[set showtabline=2]])
@@ -44,4 +52,13 @@ vim.api.nvim_create_autocmd("User", {
 	callback = function()
 		vim.cmd("redrawstatus")
 	end,
+})
+-- for ray-x/go.nvim
+local format_sync_grp = vim.api.nvim_create_augroup("GoFormat", {})
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = "*.go",
+  callback = function()
+   require('go.format').goimport()
+  end,
+  group = format_sync_grp,
 })

@@ -30,6 +30,13 @@ use {'dense-analysis/ale'}
     'nvim-telescope/telescope.nvim',                 -- fuzzy finder
     requires = { {'nvim-lua/plenary.nvim','BurntSushi/ripgrep'} }
   }
+use 'ray-x/guihua.lua' -- recommanded if need floating window support,
+use {
+    'ray-x/go.nvim',
+    config = function()
+        require('go').setup()
+    end,
+}
   use { 'majutsushi/tagbar' }                        -- code structure
   use { 'Yggdroot/indentLine' }                      -- see indentation
   use { 'tpope/vim-fugitive' }                       -- git integration
