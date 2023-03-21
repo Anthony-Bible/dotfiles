@@ -22,7 +22,7 @@ return require('packer').startup(function(use)
   use { 'Mofiqul/dracula.nvim' }
   use 'shaunsingh/nord.nvim'
   use 'github/copilot.vim'
-
+--  use 'Exafunction/codeium.vim'
 use { 'mattn/emmet-vim' }
 use {'dense-analysis/ale'}
   -- [[ Dev ]]
@@ -34,7 +34,9 @@ use 'ray-x/guihua.lua' -- recommanded if need floating window support,
 use {
     'ray-x/go.nvim',
     config = function()
-        require('go').setup()
+        require('go').setup({
+        lsp_gofumpt = true,
+        })
     end,
 }
   use { 'majutsushi/tagbar' }                        -- code structure
