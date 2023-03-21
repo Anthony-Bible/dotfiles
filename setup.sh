@@ -19,7 +19,7 @@ folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm")
 # Check if folders that must exist exist
 for folder in "${folders_that_must_exist[@]}"; do
     if [ ! -d $folder ]; then
-	echo "${YELLOW}$folder does not exist, creating it${NC}"
+	echo -e "${YELLOW}$folder does not exist, creating it${NC}"
 	mkdir -p "$folder"
     fi
 done
