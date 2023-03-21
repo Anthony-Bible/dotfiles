@@ -24,15 +24,13 @@ map('n', '<Leader>lh', '<Cmd>ALEHover<CR>', {})
 map('n', '<Leader>li', '<Cmd>ALEInfo<CR>', {})
 map('n', '<Leader>lr', '<Cmd>ALERename<CR>', {})
 
--- Refactoring
-map("v", "<leader>re", [[ <Esc><Cmd>lua require('refactoring').refactor('Extract Function')<CR>]], {noremap = true, silent = true, expr = false})
-map("v", "<leader>rf", [[ <Esc><Cmd>lua require('refactoring').refactor('Extract Function To File')<CR>]], {noremap = true, silent = true, expr = false})
-map("v", "<leader>rv", [[ <Esc><Cmd>lua require('refactoring').refactor('Extract Variable')<CR>]], {noremap = true, silent = true, expr = false})
-map("v", "<leader>ri", [[ <Esc><Cmd>lua require('refactoring').refactor('Inline Variable')<CR>]], {noremap = true, silent = true, expr = false})
+-- ray-x/go.nvim
+map('n', '<space>ca', "<cmd>lua require('go.codeaction').run_code_action()<CR>", { noremap = true, silent = true })
+map('v', '<space>ca', "<cmd>lua require('go.codeaction').run_range_code_action()<CR>", { noremap = true, silent = true })
 
--- Extract block doesn't need visual mode
-map("n", "<leader>rb", [[ <Cmd>lua require('refactoring').refactor('Extract Block')<CR>]], {noremap = true, silent = true, expr = false})
-map("n", "<leader>rbf", [[ <Cmd>lua require('refactoring').refactor('Extract Block To File')<CR>]], {noremap = true, silent = true, expr = false})
-
--- Inline variable can also pick up the identifier currently under the cursor without visual mode
-map("n", "<leader>ri", [[ <Cmd>lua require('refactoring').refactor('Inline Variable')<CR>]], {noremap = true, silent = true, expr = false})
+-- Telescope
+local builtin = require('telescope.builtin')
+map('n', '<leader>ff', 'biuiltin.find_files', {})
+map('n', '<leader>fg', "builtin.live_grep", {})
+map('n', '<leader>fb', "builtin.buffers", {})
+map('n', '<leader>fh', "builtin.help_tags", {})
