@@ -15,7 +15,7 @@ for package in "${required_packages[@]}"; do
     fi
 done
 
-folders_that_must_exist=("$HOME/.config/nvim")
+folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm")
 # Check if folders that must exist exist
 for folder in "${folders_that_must_exist[@]}"; do
     if [ ! -d $folder ]; then
@@ -25,7 +25,11 @@ for folder in "${folders_that_must_exist[@]}"; do
 done
 # Link files to proper directories
 # stow neovim files
-stow -vvv -t "$HOME/.config/nvim" nvim
+stow -t "$HOME/.config/nvim" nvim
 
 # stow .tmux.conf file in home directory
-stow -vvv -t "$HOME" --dotfiles tmux
+stow -t "$HOME" --dotfiles tmux
+
+# Clone the tmux plugin manager
+#
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
