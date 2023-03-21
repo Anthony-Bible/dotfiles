@@ -6,7 +6,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
-required_packages=(stow git)
+required_packages=(stow tmuxp git)
 # Check if required packages are installed
 for package in "${required_packages[@]}"; do
     if ! command -v $package &> /dev/null; then
