@@ -1,0 +1,43 @@
+
+
+# Uncomment the following line if you want to change the command execution time
+# stamp shown in the history command output.
+# You can set one of the optional three formats:
+# "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
+# or set a custom format using the strftime function format specifications,
+# see 'man strftime' for details.
+HIST_STAMPS="mm/dd/yyyy"
+alias k=kubectl
+export EDITOR="nvim"
+export VISUAL="nvim"
+source <(k completion zsh)
+alias vi="nvim"
+
+  export DENO_INSTALL="/home/anthony/.deno"
+  export PATH="$DENO_INSTALL/bin:$PATH"
+
+print_gopher(){
+cyan=`tput setaf 14`
+beige=`tput setaf 215`
+white=`tput setaf 15`
+black=`tput setaf 0`
+reset=`tput sgr0`
+echo $"${cyan}      ´.-::::::-.´"
+echo $"${cyan}  .:-::::::::::::::-:."
+echo $"${cyan}  ´_::${white}:    ::    :${cyan}::_´"
+echo $"${cyan}   .:${white}( ^   :: ^   )${cyan}:."
+echo $"${cyan}   ´::${white}:   ${beige}(${black}..${beige})${white}   :${cyan}::."
+echo $"${cyan}   ´:::::::${white}UU${cyan}:::::::´"
+echo $"${cyan}   .::::::::::::::::."
+echo $"${beige}   O${cyan}::::::::::::::::${beige}O"
+echo $"${cyan}   -::::::::::::::::-"
+echo $"${cyan}   ´::::::::::::::::´"
+echo $"${cyan}    .::::::::::::::."
+echo $"${beige}      oO${cyan}:::::::${beige}Oo"
+echo "${reset}"
+}
+print_gopher
+#check if machine is macos
+eval $(thefuck --alias)
+alias crap="fuck"
+eval $(minikube -p minikube docker-env)

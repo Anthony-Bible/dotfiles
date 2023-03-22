@@ -1,0 +1,43 @@
+
+dokuwiki_users(){
+for i in $(cat "$1"); do
+  USER_ID=`echo $i | cut -d "@" -f 1 | tr '.' '_'`
+  FULLNAME=`echo $i | cut -d "@" -f 1 | tr '.' ' '`
+  GROUPS="\"user,devops,google\""
+  echo -ne "$USER_ID,$FULLNAME,$i,$GROUPS\n" >>  users.csv
+  done
+}
+
+slumbering(){
+slumbering_distance=$(kubectl exec -it admin-0 -- psql -h skunkdb -U skunk -t -c "select abs(confirmed_flush_lsn - pg_current_wal_insert_lsn()) as psqlx_distance from pg_replication_slots where slot_name='psqlx';" | tr -d '\r\n\t')
+if [[ $slumbering_distance -gt 100000000 ]]; then
+   echo -e "Danger will robinson, \nDistance $slumbering_distance"
+else
+  echo "All Good"
+fi
+}
+
+kamailio_compute(){
+TOTAL=$1
+[[ -z $TOTAL ]] && echo "ERROR: First input should be total"
+RATIO=$2
+[[ -z $RATIO ]] && echo "ERROR: second input should be ratio"
+COUNT_OUT=$(printf %.0f $( echo "scale=2;${TOTAL} * (100-${RATIO})/100" | bc))
+echo "OUT: $COUNT_OUT IN: $((TOTAL-COUNT_OUT))"
+}
+
+#alias docker="lima nerdctl"
+export ANSIBLE_HOME=/Users/anthony.bible/ansible
+export ANSIBLE_CONFIG=${ANSIBLE_HOME}/ansible.cfg
+export ANSIBLE_GCP_PRIVATE_KEY_FILE=/Users/anthony.bible/.ssh/google_compute_engine
+export ANSIBLE_PRIVATE_KEY_FILE=/Users/anthony.bible/.ssh/google_compute_engine
+export ANSIBLE_GCP_KNOWN_HOSTS_FILE=/Users/anthony.bible/.ssh/google_compute_known_hosts
+export ANSIBLE_KNOWN_HOSTS_FILE=/Users/anthony.bible/.ssh/known_hosts
+export ANSIBLE_GCP_OSLOGIN_USER=anthony_bible_tcnbroadcasting_co
+export ANSIBLE_VAULT_PASSWORD_FILE=${ANSIBLE_HOME}/bin/vault-pass
+#ANSIBLE_PASSWORD_STORE_DIR=${PASSWORD_STORE_DIR}
+export PASSWORD_STORE_ENABLE_EXTENSIONS=true
+export PASSWORD_STORE_EXTENSIONS_ENABLED=true
+
+
+test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
