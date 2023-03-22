@@ -9,7 +9,7 @@ NC='\033[0m' # No Color
 required_packages=(stow tmuxp git)
 # Check if required packages are installed
 for package in "${required_packages[@]}"; do
-    if ! command -v $package &> /dev/null; then
+    if ! command -v "$package" &> /dev/null; then
         echo -e "${RED}$package could not be found${NC}"
         exit
     fi
@@ -18,18 +18,24 @@ done
 folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm")
 # Check if folders that must exist exist
 for folder in "${folders_that_must_exist[@]}"; do
-    if [ ! -d $folder ]; then
+    if [ ! -d "$folder" ]; then
 	echo -e "${YELLOW}$folder does not exist, creating it${NC}"
 	mkdir -p "$folder"
     fi
 done
 # Link files to proper directories
 # stow neovim files
-stow -t "$HOME/.config/nvim" nvim
+stow -R -t "$HOME/.config/nvim" nvim
 
 # stow .tmux.conf file in home directory
-stow -t "$HOME" --dotfiles tmux
+stow -R -t "$HOME" --dotfiles tmux
 
 # Clone the tmux plugin manager
-#
-git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+# Only clone if it does not exist otherwise pull the repo
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+    echo -e "${GREEN}Cloning tmux plugin manager${NC}"
+    git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+else
+    echo -e "${YELLOW}Pulling tmux plugin manager${NC}"
+    git -C "$HOME/.tmux/plugins/tpm" pull
+fi
