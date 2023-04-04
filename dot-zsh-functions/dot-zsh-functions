@@ -15,7 +15,7 @@ alias vi="nvim"
 
   export DENO_INSTALL="/home/anthony/.deno"
   export PATH="$DENO_INSTALL/bin:$PATH"
-
+source <(kubectl completion zsh)
 print_gopher(){
 cyan=`tput setaf 14`
 beige=`tput setaf 215`
