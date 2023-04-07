@@ -25,11 +25,19 @@ for folder in "${folders_that_must_exist[@]}"; do
 done
 # Link files to proper directories
 # stow neovim files
+echo -e "${GREEN}Stowing neovim files${NC}"
 stow -R -t "$HOME/.config/nvim" nvim
 
-# stow .tmux.conf file in home directory
+# stow .tmux.conf ile in home directory
+echo -e "${GREEN}Stowing tmux files${NC}"
 stow -R -t "$HOME" --dotfiles tmux
 
+#Get current directory
+DOTFILESDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+# stow .zshrc functions file in home directory
+echo -e "${GREEN}Stowing zsh files${NC}"
+# Put a line to export DOTFILESDIR in .zshrc only if it doesn't already exist
+grep -q -F "export DOTFILESDIR=$DOTFILESDIR" "$HOME/.zshrc" || echo "export DOTFILESDIR=$DOTFILESDIR" >> "$HOME/.zshrc"
 stow -R -t "$HOME" --dotfiles dot-zsh-functions
 
 # Clone the tmux plugin manager
@@ -68,3 +76,25 @@ elif [[ $OSTYPE == "Darwin" ]]; then
         brew install --cask wezterm
     fi
 fi
+
+# see if variable XDG_CONFIG_HOME is set
+echo -e "${GREEN}Stowing wezterm files${NC}"
+if [[ -z "$XDG_CONFIG_HOME" ]]; then
+    echo -e "${YELLOW}XDG_CONFIG_HOME is not set, using $HOME/.config/wezterm for configuration store${NC}"
+    mkdir -p "$HOME/.config/wezterm"
+    stow -R -t "$HOME/.config/wezterm" wezterm
+else
+    echo -e "${YELLOW}XDG_CONFIG_HOME is set, using $XDG_CONFIG_HOME/wezterm for configuration store${NC}"
+    mkdir -p "$XDG_CONFIG_HOME/wezterm"
+    stow -R -t "$XDG_CONFIG_HOME/wezterm" wezterm
+fi
+
+
+# setopt combining_chars if shell=zsh
+if [[ $SHELL =~ "zsh" ]]; then
+    echo -e "${YELLOW}Setting combining_chars option in zsh${NC}"
+    # only add line if it doesn't exist
+    grep -q -F 'setopt combining_chars' "$HOME/.zshrc" || echo "setopt combining_chars" >> "$HOME/.zshrc"
+fi
+
+
