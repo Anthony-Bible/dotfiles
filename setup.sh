@@ -49,3 +49,22 @@ if [[ $(hostname) == "tcn" ]]; then
 fi
 # Put in .zshrc a line to source .zsh-functions only if line doesn't exist
 grep -q -F 'source $HOME/.zsh-functions' "$HOME/.zshrc" || echo "source \$HOME/.zsh-functions" >> "$HOME/.zshrc"
+
+
+# check if linux or mac and install wezterm
+OSTYPE=$(uname)
+if [[ $OSTYPE == "Linux" ]]; then
+    # install wezterm
+    if ! command -v wezterm &> /dev/null; then
+        echo -e "${GREEN}Installing wezterm${NC}"
+        curl -LO https://github.com/wez/wezterm/releases/download/20230326-111934-3666303c/WezTerm-20230326-111934-3666303c-Ubuntu20.04.AppImage
+        chmod +x WezTerm-20230326-111934-3666303c-Ubuntu20.04.AppImage
+        mv WezTerm-20230326-111934-3666303c-Ubuntu20.04.AppImage ~/.local/bin/wezterm
+    fi
+elif [[ $OSTYPE == "Darwin" ]]; then
+    # install wezterm
+    if ! command -v wezterm &> /dev/null; then
+        echo -e "${GREEN}Installing wezterm${NC}"
+        brew install --cask wezterm
+    fi
+fi
