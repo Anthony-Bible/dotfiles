@@ -50,7 +50,7 @@ func CheckIfDotDirFilesChanged() {
   if [[ -z $DOTFILESDIR ]]; then
     echo "${yellow}WARNING: The variable dotfilesdir doesn't exist${nc}"
   else
-    if git -C "$DOTFILESDIR"  status --porcelain; then
+    if [[ -n "$(git -C $DOTFILESDIR  status --porcelain)" ]]; then
        echo "${yellow}WARNING: dotfiles directory has changes${nc}"
     fi
   fi
