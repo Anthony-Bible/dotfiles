@@ -15,7 +15,7 @@ for package in "${required_packages[@]}"; do
     fi
 done
 
-folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm")
+folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm" "$HOME/.config/wezterm/logs")
 # Check if folders that must exist exist
 for folder in "${folders_that_must_exist[@]}"; do
     if [ ! -d "$folder" ]; then
