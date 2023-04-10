@@ -6,7 +6,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
-required_packages=(stow nvim tmuxp git)
+required_packages=(stow gsed nvim tmuxp git)
 # Check if required packages are installed
 for package in "${required_packages[@]}"; do
     if ! command -v "$package" &> /dev/null; then
@@ -95,6 +95,31 @@ if [[ $SHELL =~ "zsh" ]]; then
     echo -e "${YELLOW}Setting combining_chars option in zsh${NC}"
     # only add line if it doesn't exist
     grep -q -F 'setopt combining_chars' "$HOME/.zshrc" || echo "setopt combining_chars" >> "$HOME/.zshrc"
+
+    #check if oh-my-zsh is installed
+    if [ ! -d "$HOME/.oh-my-zsh" ]; then
+        echo -e "${YELLOW}oh-my-zsh is not installed, won't install theme${NC}"
+    else
+        #check if variable ZSH_CUSTOM is set
+        if [[ -z "$ZSH_CUSTOM" ]]; then
+            echo -e "${YELLOW}ZSH_CUSTOM is not set, using $HOME/.oh-my-zsh/custom for custom themes${NC}"
+            ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"
+        else
+            echo -e "${YELLOW}ZSH_CUSTOM is set, using $ZSH_CUSTOM for custom themes${NC}"
+        fi
+        # install theme
+        echo -e "${GREEN}Installing theme${NC}"
+        mkdir -p "$ZSH_CUSTOM/themes"
+        stow -R --dotfiles -t "$ZSH_CUSTOM" dot-oh-my-zsh
+        # Get file name in dot-oh-my-zsh/themes
+        theme_file=$(ls -1 "$DOTFILESDIR/dot-oh-my-zsh/themes")
+        #remove .zsh-theme extension
+        theme_file=${theme_file%.zsh-theme}
+        echo $theme_file
+        #change variable ZSH_THEME to "$theme_file" in .zshrc
+        #
+        gsed -i "s/ZSH_THEME=.*/ZSH_THEME=\"$theme_file\"/" "$HOME/.zshrc"
+    fi
 fi
 
 
