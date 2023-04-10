@@ -8,7 +8,7 @@ wezterm.on('trigger-vim-with-visible-text', function(window, pane)
   --
   -- Note: You could also pass an optional number of lines (eg: 2000) to
   -- retrieve that number of lines starting from the bottom of the viewport.
-  local viewport_text = pane:get_lines_as_text()
+  local viewport_text = pane:get_lines_as_text(2000)
 
   -- Create a temporary file to pass to vim
 --  local name = os.tmpname()
