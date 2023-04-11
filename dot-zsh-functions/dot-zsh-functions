@@ -54,7 +54,15 @@ func CheckIfDotDirFilesChanged() {
     if [[ -n "$(git -C $DOTFILESDIR  status --porcelain)" ]]; then
        echo -e "${yellow}WARNING: dotfiles directory has changes${nc}"
     else
-        [[ $(git -C $DOTFILESDIR rev-parse HEAD ) == $(git ls-remote $DOTFILESDIR $(git -C $DOTFILESDIR rev-parse --abbrev-ref @{u} | sed 's/\// /g') | cut -f1) ]] && echo -e "${green}up to date${nc}" || echo -e "${yellow}not up to date${nc}"
+        local_commit=$(git -C $DOTFILESDIR rev-parse HEAD)
+        remote_branch_info=$(git -C $DOTFILESDIR rev-parse --abbrev-ref @{u} ) 
+        remote_commit=$(git ls-remote $DOTFILESDIR $remote_branch_info | cut -f1)
+
+        if [[ "$local_commit" == "$remote_commit" ]]; then
+            echo -e "${green}up to date${nc}"
+        else
+            echo -e "${yellow}not up to date${nc}"
+        fi
 fi
   fi
 }
