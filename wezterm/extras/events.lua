@@ -40,7 +40,7 @@ wezterm.on('trigger-vim-with-visible-text', function(window, pane)
   --
   -- Note: We don't strictly need to remove this file, but it is nice
   -- to avoid cluttering up the temporary directory.
-  wezterm.sleep_ms(5000)
+  wezterm.sleep_ms(1000)
 end)
 
 return {
@@ -50,6 +50,18 @@ return {
       mods = 'CTRL',
       action = act.EmitEvent 'trigger-vim-with-visible-text',
     },
-  },
+      -- Make Option-Left equivalent to Alt-b which many line editors interpret as backward-word
+    {
+      key = 'LeftArrow', 
+      mods = 'OPT', 
+      action = act.SendString '\x1bb', 
+    },
+  -- Make Option-Right equivalent to Alt-f; forward-word
+    {
+      key = 'RightArrow', 
+      mods = 'OPT', 
+      action = act.SendString '\x1bf', 
+    },
+}
 }
 
