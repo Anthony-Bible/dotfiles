@@ -62,6 +62,16 @@ return {
       mods = 'OPT', 
       action = act.SendString '\x1bf', 
     },
+    {
+        key = 'UpArrow',
+        mods = 'SHIFT',
+        action = act.ScrollToPrompt(-1)
+    },
+    {
+        key = 'DownArrow',
+        mods = 'SHIFT',
+        action = act.ScrollToPrompt(1) 
+    },
 }
 }
 
