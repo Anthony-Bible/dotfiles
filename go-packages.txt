@@ -1,0 +1,7 @@
+github.com/abenz1267/gomvp@latest
+golang.org/x/tools/cmd/gorename@latest
+github.com/mgechev/revive@v1.2.5
+golang.org/x/tools/cmd/goimports@latest
+mvdan.cc/gofumpt@latest
+golang.org/x/vuln/cmd/govulncheck@latest
+github.com/spf13/cobra-cli@latest
