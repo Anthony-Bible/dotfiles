@@ -1,12 +1,17 @@
 -- [[ plug.lua ]]
 
-local fn = vim.fn
-local install_path = fn.stdpath('data')..'/site/pack/packer/start/packer.nvim'
-if fn.empty(fn.glob(install_path)) > 0 then
-  packer_bootstrap = fn.system({'git', 'clone', '--depth', '1', 'https://github.com/wbthomason/packer.nvim', install_path})
-  vim.cmd [[packadd packer.nvim]]
+local ensure_packer = function()
+  local fn = vim.fn
+  local install_path = fn.stdpath('data')..'/site/pack/packer/start/packer.nvim'
+  if fn.empty(fn.glob(install_path)) > 0 then
+    fn.system({'git', 'clone', '--depth', '1', 'https://github.com/wbthomason/packer.nvim', install_path})
+    vim.cmd [[packadd packer.nvim]]
+    return true
+  end
+  return false
 end
 
+local packer_bootstrap = ensure_packer()
 return require('packer').startup(function(use)
   use {                                              -- filesystem navigation
     'kyazdani42/nvim-tree.lua',
@@ -56,64 +61,64 @@ use {
     }
   end
 }
-use {
-  'https://codeberg.org/esensar/nvim-dev-container',
-  requires = { 'nvim-treesitter/nvim-treesitter' },
-  config = function()
-    require("devcontainer").setup{
-	terminal_handler = function(command)
-		local laststatus = vim.o.laststatus
-		vim.cmd("tabnew")
-		local bufnr = vim.api.nvim_get_current_buf()
-		vim.o.laststatus = 0
-		local au_id = vim.api.nvim_create_augroup("devcontainer.docker.terminal", {})
-		vim.api.nvim_create_autocmd("BufEnter", {
-			buffer = bufnr,
-			group = au_id,
-			callback = function()
-				vim.o.laststatus = 0
-				vim.cmd("set lines+=1")
-			end,
-		})
-		vim.api.nvim_create_autocmd("BufLeave", {
-			buffer = bufnr,
-			group = au_id,
-			callback = function()
-				vim.o.laststatus = laststatus
-				vim.cmd("set lines-=1")
-			end,
-		})
-		vim.api.nvim_create_autocmd("BufDelete", {
-			buffer = bufnr,
-			group = au_id,
-			callback = function()
-				vim.o.laststatus = laststatus
-				vim.cmd("set lines-=1")
-				vim.api.nvim_del_augroup_by_id(au_id)
-			end,
-		})
-		vim.fn.termopen(command)
-
-	    end,
-
-        autocommands = {
-        init = true,
-        update = true
-      },
-      attach_mounts = {
-          always = true,
-          neovim_config= {
-           enabled = true,
-           options = {}
-          }
-      },
-      neovim_data = {
-        enabled=true,
-        options = {}
-      }
-    }
-    end
-}
+--use {
+--  'https://codeberg.org/esensar/nvim-dev-container',
+--  requires = { 'nvim-treesitter/nvim-treesitter' },
+--  config = function()
+--    require("devcontainer").setup{
+--	terminal_handler = function(command)
+--		local laststatus = vim.o.laststatus
+--		vim.cmd("tabnew")
+--		local bufnr = vim.api.nvim_get_current_buf()
+--		vim.o.laststatus = 0
+--		local au_id = vim.api.nvim_create_augroup("devcontainer.docker.terminal", {})
+--		vim.api.nvim_create_autocmd("BufEnter", {
+--			buffer = bufnr,
+--			group = au_id,
+--			callback = function()
+--				vim.o.laststatus = 0
+--				vim.cmd("set lines+=1")
+--			end,
+--		})
+--		vim.api.nvim_create_autocmd("BufLeave", {
+--			buffer = bufnr,
+--			group = au_id,
+--			callback = function()
+--				vim.o.laststatus = laststatus
+--				vim.cmd("set lines-=1")
+--			end,
+--		})
+--		vim.api.nvim_create_autocmd("BufDelete", {
+--			buffer = bufnr,
+--			group = au_id,
+--			callback = function()
+--				vim.o.laststatus = laststatus
+--				vim.cmd("set lines-=1")
+--				vim.api.nvim_del_augroup_by_id(au_id)
+--			end,
+--		})
+--		vim.fn.termopen(command)
+--
+--	    end,
+--
+--        autocommands = {
+--        init = true,
+--        update = true
+--      },
+--      attach_mounts = {
+--          always = true,
+--          neovim_config= {
+--           enabled = true,
+--           options = {}
+--          }
+--      },
+--      neovim_data = {
+--        enabled=true,
+--        options = {}
+--      }
+--    }
+--    end
+--}
 require'nvim-treesitter.configs'.setup {
   ensure_installed = { "jsonc" },
   -- Install parsers synchronously (only applied to `ensure_installed`)

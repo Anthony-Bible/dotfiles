@@ -9,11 +9,11 @@ vim.g.localleader = " "
 
 -- IMPORTS
 
+require('plug')      -- Plugin
 require('vars')      -- Variables
 
 require('keys')      -- Keymaps
 
-require('plug')      -- Plugin
 require('lsp_config')
 require('opts')      -- Options
 require('ale') -- ale setup
