@@ -133,4 +133,19 @@ if [[ $SHELL =~ "zsh" ]]; then
     fi
 fi
 
+# install golang
+if ! command -v go &> /dev/null; then
+    echo -e "${GREEN}Installing golang${NC}"
+    if [[ $OSTYPE == "Linux" ]]; then
+        sudo apt install golang
+    elif [[ $OSTYPE == "Darwin" ]]; then
+        brew install golang
+    fi
+fi
 
+#install all go packages from file
+echo -e "${GREEN}Installing go packages${NC}"
+for go_package in $(cat "$DOTFILESDIR/go-packages.txt"); do
+    echo -e "${YELLOW}Installing $go_package${NC}"
+    go install "$go_package"
+done
