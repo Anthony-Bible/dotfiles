@@ -6,7 +6,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
-required_packages=(stow gsed nvim tmuxp git)
+required_packages=(stow nvim tmuxp git)
 # Check if required packages are installed
 for package in "${required_packages[@]}"; do
     if ! command -v "$package" &> /dev/null; then
@@ -14,6 +14,17 @@ for package in "${required_packages[@]}"; do
         exit
     fi
 done
+
+# if macos use gsed instead of sed
+if [[ $(uname) == "Darwin" ]]; then
+    if ! command -v gsed &> /dev/null; then
+        echo -e "${RED}gsed could not be found${NC}"
+        exit
+    fi
+    _sed=$(which gsed)
+else
+    _sed=$(which sed)
+fi
 
 folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm" "$HOME/.config/wezterm/logs")
 # Check if folders that must exist exist
@@ -118,7 +129,7 @@ if [[ $SHELL =~ "zsh" ]]; then
         echo $theme_file
         #change variable ZSH_THEME to "$theme_file" in .zshrc
         #
-        gsed -i "s/ZSH_THEME=.*/ZSH_THEME=\"$theme_file\"/" "$HOME/.zshrc"
+        $_sed -i "s/ZSH_THEME=.*/ZSH_THEME=\"$theme_file\"/" "$HOME/.zshrc"
     fi
 fi
 
