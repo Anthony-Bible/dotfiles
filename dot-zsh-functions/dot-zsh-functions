@@ -69,3 +69,8 @@ fi
   fi
 }
 CheckIfDotDirFilesChanged
+# if linux then set the aliases
+if [[ $(uname -s) == "Linux" ]]; then
+    alias pbcopy='xclip -selection clipboard'
+    alias pbpaste='xclip -selection clipboard -o'
+fi

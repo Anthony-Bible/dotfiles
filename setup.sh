@@ -76,9 +76,9 @@ if [[ $OSTYPE == "Linux" ]]; then
     # install wezterm
     if ! command -v wezterm &> /dev/null; then
         echo -e "${GREEN}Installing wezterm${NC}"
-        curl -LO https://github.com/wez/wezterm/releases/download/20230326-111934-3666303c/WezTerm-20230326-111934-3666303c-Ubuntu20.04.AppImage
-        chmod +x WezTerm-20230326-111934-3666303c-Ubuntu20.04.AppImage
-        mv WezTerm-20230326-111934-3666303c-Ubuntu20.04.AppImage ~/.local/bin/wezterm
+        curl -LO https://github.com/wez/wezterm/releases/download/20230408-112425-69ae8472/WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage
+        chmod +x WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage
+        mv WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage ~/.local/bin/wezterm
     fi
 elif [[ $OSTYPE == "Darwin" ]]; then
     # install wezterm
