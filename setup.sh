@@ -6,7 +6,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
-required_packages=(stow nvim tmuxp git)
+required_packages=(stow tmuxp git)
 # Check if required packages are installed
 for package in "${required_packages[@]}"; do
     if ! command -v "$package" &> /dev/null; then
@@ -25,7 +25,15 @@ if [[ $(uname) == "Darwin" ]]; then
 else
     _sed=$(which sed)
 fi
-
+mkdir -p ~/.local/bin
+OSTYPE=$(uname)
+if [[ $OSTYPE == "Linux" ]]; then
+   if ! command -v nvim &> /dev/null; then
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
+    chmod u+x nvim.appimage
+    mv nvim.appimage ~/.local/bin/nvim
+   fi
+fi
 folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm" "$HOME/.config/wezterm/logs")
 # Check if folders that must exist exist
 for folder in "${folders_that_must_exist[@]}"; do
@@ -149,3 +157,30 @@ for go_package in $(cat "$DOTFILESDIR/go-packages.txt"); do
     echo -e "${YELLOW}Installing $go_package${NC}"
     go install "$go_package"
 done
+
+# install thefuck
+if [[ $OSTYPE == "Linux" ]]; then
+ #Check if it's ubuntu or debian
+ distro=$(lsb_release -i | awk -F':' '{print $2}')
+ if [[ $distro =~ "Ubuntu" ]]; then
+     sudo apt update -y &&  sudo apt install -y python3-dev python3-pip python3-setuptools
+     pip3 install thefuck --user
+  else
+      if ! command -v pip 2> /dev/null; then
+          echo "please install pip"
+          exit 1
+      fi
+      pip install thefuck
+  fi
+elif [[ $OSTYPE == "Darwin" ]]; then
+   brew install thefuck
+fi
+
+#Install minikube
+if [[ $OSTYPE == "Linux" ]]; then
+    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    install minikube-linux-amd64 $HOME/.local/bin/minikube
+else
+    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
+    install minikube-darwin-amd64 $HOME/.local/bin/minikube
+fi

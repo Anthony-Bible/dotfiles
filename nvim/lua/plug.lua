@@ -50,6 +50,8 @@ use {
   use { 'junegunn/gv.vim' }                          -- commit history
   use { 'windwp/nvim-autopairs' }                    -- auto close brackets, etc.
   use{ 'tpope/vim-surround' }
+  use { 'nvim-treesitter/nvim-treesitter' }
+
   -- WhichKey
   use {
   "folke/which-key.nvim",
