@@ -34,3 +34,6 @@ map('n', '<leader>ff', 'biuiltin.find_files', {})
 map('n', '<leader>fg', "builtin.live_grep", {})
 map('n', '<leader>fb', "builtin.buffers", {})
 map('n', '<leader>fh', "builtin.help_tags", {})
+
+--map('n', '<C-J>', '<cmd>copilot.Accept()<CR>' {})
+--let g:copilot_no_tab_map = v:true

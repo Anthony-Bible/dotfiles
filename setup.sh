@@ -184,3 +184,15 @@ else
     curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
     install minikube-darwin-amd64 $HOME/.local/bin/minikube
 fi
+
+#install kubectl
+if [[ $OSTYPE == "Linux" ]]; then
+       curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+       sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+else
+   #INSTALL kubectl for mac
+      curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/amd64/kubectl"
+     chmod +x ./kubectl
+
+     sudo mv ./kubectl /usr/local/bin/kubectl
+fi
