@@ -38,6 +38,6 @@ export ANSIBLE_VAULT_PASSWORD_FILE=${ANSIBLE_HOME}/bin/vault-pass
 #ANSIBLE_PASSWORD_STORE_DIR=${PASSWORD_STORE_DIR}
 export PASSWORD_STORE_ENABLE_EXTENSIONS=true
 export PASSWORD_STORE_EXTENSIONS_ENABLED=true
-
+export GOPRIVATE=git.tcncloud.net
 
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
