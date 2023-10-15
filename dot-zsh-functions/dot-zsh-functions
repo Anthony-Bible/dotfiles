@@ -17,7 +17,7 @@ export DENO_INSTALL="/home/anthony/.deno"
 source <(kubectl completion zsh)
 export GOPATH=$HOME/go
 export PATH=$PATH:$GOPATH/bin
-export PATH="$DENO_INSTALL/bin:$HOME/.local/bin:$PATH"
+export PATH="$DENO_INSTALL/bin:$HOME/.local/bin:/usr/local/go/bin:/home2/anthony/Cluster/istio/istio-1.13.3/bin:$PATH"
 print_gopher(){
 cyan=`tput setaf 14`
 beige=`tput setaf 215`
