@@ -41,3 +41,14 @@ export PASSWORD_STORE_EXTENSIONS_ENABLED=true
 export GOPRIVATE=git.tcncloud.net
 
 test -e "${HOME}/.iterm2_shell_integration.zsh" && source "${HOME}/.iterm2_shell_integration.zsh"
+
+get_iam() {
+local resource=$1
+echo  "https://iap.googleapis.com/v1/projects/tcn-cloud/iap_web/compute/services/${resource}:getIamPolicy" 
+curl -X POST \
+-H "Authorization: Bearer $(gcloud auth print-access-token)" \
+-H "Content-Type: application/json" \
+-d '' \
+"https://iap.googleapis.com/v1/projects/tcn-cloud/iap_web/compute/services/${resource}:getIamPolicy" 
+
+}
