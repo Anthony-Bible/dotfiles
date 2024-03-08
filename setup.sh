@@ -34,7 +34,7 @@ if [[ $OSTYPE == "Linux" ]]; then
     mv nvim.appimage ~/.local/bin/nvim
    fi
 fi
-folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.tmux/plugins/tpm" "$HOME/.config/wezterm/logs")
+folders_that_must_exist=("$HOME/.config/nvim" "$HOME/.config/nix" "$HOME/.tmux/plugins/tpm" "$HOME/.config/wezterm/logs")
 # Check if folders that must exist exist
 for folder in "${folders_that_must_exist[@]}"; do
     if [ ! -d "$folder" ]; then
@@ -196,3 +196,37 @@ else
 
      sudo mv ./kubectl /usr/local/bin/kubectl
 fi
+#check if nix is installed
+if ! command -v nix > /dev/null; then
+    curl -L https://nixos.org/nix/install
+    # See if the user wants to continue
+
+    while true; do
+        echo "Do you want to continue? (y/n)"
+        read -n 1 -r input
+        echo # Move to a new line
+
+        # Convert to lowercase
+        input=${input,,}
+
+        case $input in
+            y)
+                echo "Continuing..."
+                # Place your commands here
+                break # Exit the loop
+                ;;
+            n)
+                echo "Not continuing. Exiting..."
+                exit 1
+                ;;
+            *)
+                echo "Invalid input. Please enter 'y' or 'n'."
+                ;;
+        esac
+    done
+    sh <(curl -L https://nixos.org/nix/install) --daemon
+fi
+# allow nix flakes to be used
+
+echo -e "${GREEN}Stowing nix files${NC}"
+stow -R -t "$HOME/.config/nix" nix
