@@ -1,0 +1,32 @@
+{
+  description = "Flake utils demo";
+
+  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.home-manager.url = "github:nix-community/home-manager";
+  inputs.home-manager.inputs.nixpkgs.follows = "nixpkgs";
+
+  outputs = { self, nixpkgs, flake-utils, home-manager, ... }: {
+    flake-utils.lib.eachDefaultSystem (system:
+      let pkgs = nixpkgs.legacyPackages.${system}; in
+      {
+        packages = rec {
+          hello = pkgs.hello;
+          default = hello;
+        };
+        modules = [
+          ./configuration.nix
+          home-manager.nixosModules.home-manager
+          {
+            home-manager = {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.users.anthony = import ./home.nix;
+            };
+        ];
+        apps = rec {
+          hello = flake-utils.lib.mkApp { drv = self.packages.${system}.hello; };
+          default = hello;
+        };
+      }
+    );
+}      

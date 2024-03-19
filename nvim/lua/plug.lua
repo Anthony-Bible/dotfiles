@@ -51,7 +51,7 @@ use {
   use { 'windwp/nvim-autopairs' }                    -- auto close brackets, etc.
   use{ 'tpope/vim-surround' }
   use { 'nvim-treesitter/nvim-treesitter' }
-
+ use {'instant-markdown/vim-instant-markdown'}
   -- WhichKey
   use {
   "folke/which-key.nvim",
@@ -135,3 +135,4 @@ use { 'SirVer/ultisnips' }
     require('packer').sync()
   end
 end)
+
