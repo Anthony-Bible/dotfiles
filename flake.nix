@@ -15,25 +15,18 @@
     in rec {
       packages = rec {
         hello = pkgs.hello;
-      };
-
-      defaultPackage = packages.hello; # Set the default package
-
-      nixosConfigurations = {
-        myConfiguration = nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = { inherit inputs; }; # Makes `inputs` available in NixOS modules
+      homeConfigurations = {
+        "anthony" =  home-manager.lib.homeManagerConfiguration{
+        inherit pkgs;
           modules = [
-            ./configuration.nix
-            home-manager.nixosModules.home-manager
-            ({
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.users.anthony = import ./home.nix;
-            })
+            ./home.nix
           ];
         };
       };
+
+      };
+
+      defaultPackage = home-manager.defaultPackage.${system};
 
       apps = rec {
         hello = flake-utils.lib.mkApp { drv = self.packages.${system}.hello; };
