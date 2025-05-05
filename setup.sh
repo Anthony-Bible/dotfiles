@@ -95,7 +95,6 @@ elif [[ $OSTYPE == "Darwin" ]]; then
         echo -e "${GREEN}Installing wezterm${NC}"
                     brew install --cask wezterm
         fi
-    fi
 fi
 
 # see if variable XDG_CONFIG_HOME is set

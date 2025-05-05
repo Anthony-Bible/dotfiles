@@ -1,6 +1,7 @@
 # Configurable aichat command variables
-AI_EXECUTE=("$HOME/aichat" "-e")
-AI_CHAT="$HOME/aichat"
+AI_CHAT_COMMAND=$(which aichat 2>/dev/null)
+AI_EXECUTE=("$AI_CHAT_COMMAND/aichat" "-e")
+AI_CHAT="$AI_CHAT_COMMAND"
 
 # Use aichat to handle unknown commands
 command_not_found_handler() {
