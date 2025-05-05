@@ -12,20 +12,22 @@
   outputs = { self, nixpkgs, flake-utils, home-manager, ... }@inputs:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
+      userName = builtins.getEnv "USER";
     in rec {
+        diagnostic = {
+      userNameValue = userName;
+    };
       packages = rec {
         hello = pkgs.hello;
-      homeConfigurations = {
-        "anthony" =  home-manager.lib.homeManagerConfiguration{
-        inherit pkgs;
+      homeConfigurations = with nixpkgs.lib; listToAttrs (flip map flake-utils.lib.defaultSystems
+        (system: nameValuePair "${username}-${system}" home-manager.lib.homeManagerConfiguration {
+          pkgs = import nixpkgs { inherit system; };
           modules = [
+            # ...
             ./home.nix
           ];
-        };
+        }));
       };
-
-      };
-
       defaultPackage = home-manager.defaultPackage.${system};
 
       apps = rec {

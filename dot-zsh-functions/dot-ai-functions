@@ -1,12 +1,19 @@
+# Use aichat to handle unknown commands
 command_not_found_handler() {
    ~/aichat -e "$@"
 }
+
+# Explain a command using aichat
 explain() {
     ~/aichat "$@"
 }
+
+# Same as explain, but allows 'explain:' syntax
 explain:() {
     ~/aichat "$@"
 }
+
+# ZLE widget: send current buffer to aichat and replace with result
 _aichat_zsh() {
     if [[ -n "$BUFFER" ]]; then
         local _old=$BUFFER
@@ -17,6 +24,14 @@ _aichat_zsh() {
     fi
 }
 zle -N _aichat_zsh
+
+# Keybindings for _aichat_zsh:
+#   Alt-e in emacs mode, vi insert mode, and vi command mode
 bindkey '\ee' _aichat_zsh
 bindkey -M viins '\ee' _aichat_zsh
 bindkey -M vicmd '\ee' _aichat_zsh
+
+# Enable editing the command line in $EDITOR with 'v' in vi command mode
+autoload -Uz edit-command-line
+zle -N edit-command-line
+bindkey -M vicmd v edit-command-line
