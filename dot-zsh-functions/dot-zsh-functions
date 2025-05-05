@@ -84,3 +84,8 @@ source $HOME/.ai-functions
 # Enable vim key binding mode
 bindkey -v
 export KEYTIMEOUT=1
+
+# Enable editing the command line in $EDITOR with 'v' in vi command mode
+autoload -Uz edit-command-line
+zle -N edit-command-line
+bindkey -M vicmd v edit-command-line
