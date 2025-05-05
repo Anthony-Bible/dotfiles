@@ -60,9 +60,6 @@ _ai_commit_msg_zsh() {
 
     # Use fzf or prompt for file selection
     if command -v fzf >/dev/null 2>&1; then
-        # fzf outputs selected lines separated by newlines.
-        # Read directly into an array using process substitution and read -A
-        # Alternatively, capture newline-separated string and split:
         files_string=$(echo "$git_files" | fzf -m --prompt="Select files for commit: " --header="TAB to select, ENTER to confirm")
         # Check if fzf was cancelled or returned empty
         if [[ -z "$files_string" ]]; then
@@ -99,30 +96,19 @@ _ai_commit_msg_zsh() {
     fi
 
     tmpfile=$(mktemp /tmp/ai-commit-msg.XXXXXX)
-    # Optional: Add trap to clean up tmpfile on exit/interrupt
-    # trap "rm -f $tmpfile; trap - INT TERM EXIT" INT TERM EXIT
+ 
 
     # Debugging: Use the array correctly
     # Use print -r -- to safely print array elements, one per line typically
-    print -r -- "Selected files array:" "${files_array[@]}"
+    # print -r -- "Selected files array:" "${files_array[@]}"
 
-    # Get the diff. Consider --cached if you want staged changes,
-    # or HEAD if you want changes relative to last commit.
+
     # Default 'git diff' is unstaged changes in working dir vs index.
     # Use the array expansion "${files_array[@]}"
-    changes=$(git diff -- "${files_array[@]}")
+    changes=$(git diff --cached -- "${files_array[@]}")
 
     # Check if changes are empty *before* calling AI
     if [[ -z "$changes" ]]; then
-        # Decide what to do: proceed with empty diff, or abort?
-        # Option 1: Abort
-        # set +x
-        # BUFFER="" # Clear hourglass
-        # zle -I && zle redisplay
-        # zle -M "No changes detected in selected files to generate commit message from."
-        # rm -f $tmpfile # Clean up
-        # trap - INT TERM EXIT # Remove trap
-        # return 1
 
         # Option 2: Proceed (AI might still generate a generic message)
         print -r -- "Warning: No changes detected via 'git diff' for selected files."
@@ -149,7 +135,6 @@ _ai_commit_msg_zsh() {
         # Decide: continue with empty message or abort? Let's continue for now.
     fi
 
-    set +x # Turn off debugging before modifying buffer
 
     # Write message to temp file
     echo "$msg" > "$tmpfile"
@@ -162,8 +147,6 @@ _ai_commit_msg_zsh() {
     BUFFER="git commit -F $tmpfile"
     zle end-of-line # Move cursor to the end
 
-    # Optional: remove the trap if you want the temp file to persist until commit/abort
-    # trap - INT TERM EXIT
 }
 
 # Make the function available as a widget
