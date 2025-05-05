@@ -78,3 +78,9 @@ if [[ $(uname -s) == "Linux" ]]; then
 fi
 
 source $HOME/.ai-functions
+
+
+
+# Enable vim key binding mode
+bindkey -v
+export KEYTIMEOUT=1
