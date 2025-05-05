@@ -20,11 +20,16 @@ explain:() {
 
 # ZLE widget: send current buffer to aichat and replace with result
 _aichat_zsh() {
+    
     if [[ -n "$BUFFER" ]]; then
         local _old=$BUFFER
         BUFFER+="⌛"
         zle -I && zle redisplay
-        BUFFER=$($AI_EXECUTE "$_old")
+        if [[ "$(uname)" == "Darwin" ]]; then
+            BUFFER=$(echo $AI_EXECUTE "$_old")
+        else
+            BUFFER=$($AI_EXECUTE "$_old")
+        fi
         zle end-of-line
     fi
 }
