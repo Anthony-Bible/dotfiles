@@ -1,5 +1,5 @@
 # Configurable aichat command variables
-AI_EXECUTE="$HOME/aichat -e"
+AI_EXECUTE=("$HOME/aichat" "-e")
 AI_CHAT="$HOME/aichat"
 
 # Use aichat to handle unknown commands
@@ -29,9 +29,159 @@ _aichat_zsh() {
 }
 zle -N _aichat_zsh
 
+# Generate a commit message using aichat and git diff
+ai_commit_msg() {
+    $AI_CHAT "generate a commit message for the following $(git diff)"
+}
+
+# ZLE widget for ai_commit_msg (menu-based file selection)
+_ai_commit_msg_zsh() {
+    # Use local -a for arrays
+    local -a files_array # Declare files_array as an array
+    local files_string tmpfile msg changes # files_string will hold the space-separated list initially
+
+    # buffer equals an hourglass
+    BUFFER="⌛ Generating commit message..."
+    zle -I && zle redisplay
+
+    # Get list of potentially changed files (Modified, Added, Renamed, Copied, Untracked)
+    # Using 'git ls-files --others --exclude-standard --modified --deleted' might be more comprehensive
+    # than 'git status --porcelain', but let's stick to the original for now.
+    local git_files
+    git_files=$(git status --porcelain | awk '{print $2}') # Get candidate files
+
+    if [[ -z "$git_files" ]]; then
+        zle -M "No files found by 'git status --porcelain'."
+        # Reset buffer or provide feedback
+        BUFFER=""
+        zle -I && zle redisplay
+        return 1
+    fi
+
+    # Use fzf or prompt for file selection
+    if command -v fzf >/dev/null 2>&1; then
+        # fzf outputs selected lines separated by newlines.
+        # Read directly into an array using process substitution and read -A
+        # Alternatively, capture newline-separated string and split:
+        files_string=$(echo "$git_files" | fzf -m --prompt="Select files for commit: " --header="TAB to select, ENTER to confirm")
+        # Check if fzf was cancelled or returned empty
+        if [[ -z "$files_string" ]]; then
+           BUFFER="" # Clear hourglass
+           zle -I && zle redisplay
+           zle -M "No files selected."
+           return 1
+        fi
+        # Split the newline-separated string from fzf into the array
+        files_array=("${(@f)files_string}")
+    else
+        # Fallback: Simple prompt (less user-friendly for many files)
+        # Display available files first
+        print -l $git_files # Print one file per line
+        zle -M "Enter files to include (space-separated from list above):"
+        read -r "files_string?Files: "
+        # Check if user provided input
+        if [[ -z "$files_string" ]]; then
+           BUFFER="" # Clear hourglass
+           zle -I && zle redisplay
+           zle -M "No files entered."
+           return 1
+        fi
+        # Split the space-separated string into the array using the 'z' flag for shell parsing
+        files_array=("${(z)files_string}")
+    fi
+
+    # Check if the array is actually empty after splitting (e.g., user just hit Enter)
+    if [[ ${#files_array[@]} -eq 0 ]]; then
+        BUFFER="" # Clear hourglass
+        zle -I && zle redisplay
+        zle -M "No files selected/entered."
+        return 1
+    fi
+
+    tmpfile=$(mktemp /tmp/ai-commit-msg.XXXXXX)
+    # Optional: Add trap to clean up tmpfile on exit/interrupt
+    # trap "rm -f $tmpfile; trap - INT TERM EXIT" INT TERM EXIT
+
+    # Debugging: Use the array correctly
+    # Use print -r -- to safely print array elements, one per line typically
+    print -r -- "Selected files array:" "${files_array[@]}"
+
+    # Get the diff. Consider --cached if you want staged changes,
+    # or HEAD if you want changes relative to last commit.
+    # Default 'git diff' is unstaged changes in working dir vs index.
+    # Use the array expansion "${files_array[@]}"
+    changes=$(git diff -- "${files_array[@]}")
+
+    # Check if changes are empty *before* calling AI
+    if [[ -z "$changes" ]]; then
+        # Decide what to do: proceed with empty diff, or abort?
+        # Option 1: Abort
+        # set +x
+        # BUFFER="" # Clear hourglass
+        # zle -I && zle redisplay
+        # zle -M "No changes detected in selected files to generate commit message from."
+        # rm -f $tmpfile # Clean up
+        # trap - INT TERM EXIT # Remove trap
+        # return 1
+
+        # Option 2: Proceed (AI might still generate a generic message)
+        print -r -- "Warning: No changes detected via 'git diff' for selected files."
+    fi
+
+    # Ensure $AI_CHAT is defined and executable
+    if ! command -v "$AI_CHAT" >/dev/null 2>&1 && ! type "$AI_CHAT" | grep -q 'function'; then
+       set +x
+       BUFFER="" # Clear hourglass
+       zle -I && zle redisplay
+       zle -M "Error: AI command '$AI_CHAT' not found or not executable."
+       rm -f $tmpfile # Clean up
+       trap - INT TERM EXIT # Remove trap
+       return 1
+    fi
+
+    # Call the AI, quoting the changes variable
+    msg="$($AI_CHAT "generate a short, concise and accurate commit message for the following changes: $changes")"
+    # Check if AI returned an empty message
+    if [[ -z "$msg" ]]; then
+        BUFFER="" # Clear hourglass
+        zle -I && zle redisplay
+        zle -M "Warning: AI returned an empty commit message."
+        # Decide: continue with empty message or abort? Let's continue for now.
+    fi
+
+    set +x # Turn off debugging before modifying buffer
+
+    # Write message to temp file
+    echo "$msg" > "$tmpfile"
+
+    # Add the selected files using the array
+    # This correctly handles filenames with spaces or special characters
+    git add -- "${files_array[@]}"
+
+    # Set the buffer for the commit command
+    BUFFER="git commit -F $tmpfile"
+    zle end-of-line # Move cursor to the end
+
+    # Optional: remove the trap if you want the temp file to persist until commit/abort
+    # trap - INT TERM EXIT
+}
+
+# Make the function available as a widget
+zle -N _ai_commit_msg_zsh
+
+# Optional: Bind it to a key sequence (e.g., Alt+C)
+# bindkey '^[c' _ai_commit_msg_zsh
+
+
 # Keybindings for _aichat_zsh:
 #   Alt-e in emacs mode, vi insert mode, and vi command mode
 bindkey '\ee' _aichat_zsh
 bindkey -M viins '\ee' _aichat_zsh
 bindkey -M vicmd '\ee' _aichat_zsh
+
+# Keybinding for ai_commit_msg:
+#   Alt-g in emacs mode, vi insert mode, and vi command mode
+bindkey '\eg' _ai_commit_msg_zsh
+bindkey -M viins '\eg' _ai_commit_msg_zsh
+bindkey -M vicmd '\eg' _ai_commit_msg_zsh
 
