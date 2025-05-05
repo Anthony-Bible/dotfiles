@@ -1,16 +1,20 @@
+# Configurable aichat command variables
+AI_EXECUTE="$HOME/aichat -e"
+AI_CHAT="$HOME/aichat"
+
 # Use aichat to handle unknown commands
 command_not_found_handler() {
-   ~/aichat -e "$@"
+   $AI_EXECUTE "$@"
 }
 
 # Explain a command using aichat
 explain() {
-    ~/aichat "$@"
+    $AI_CHAT "$@"
 }
 
 # Same as explain, but allows 'explain:' syntax
 explain:() {
-    ~/aichat "$@"
+    $AI_CHAT "$@"
 }
 
 # ZLE widget: send current buffer to aichat and replace with result
@@ -19,7 +23,7 @@ _aichat_zsh() {
         local _old=$BUFFER
         BUFFER+="⌛"
         zle -I && zle redisplay
-        BUFFER=$($HOME/aichat -e "$_old")
+        BUFFER=$($AI_EXECUTE "$_old")
         zle end-of-line
     fi
 }
