@@ -108,6 +108,16 @@ else
     stow -R -t "$XDG_CONFIG_HOME/wezterm" wezterm
 fi
 
+# see if variable XDG_CONFIG_HOME is set
+echo -e "${GREEN}Checking for aichat${NC}"
+if [[ $OSTYPE == "Darwin" ]]; then
+    if ! command -v aichat &> /dev/null; then
+        echo -e "${GREEN}Installing aichat with brew${NC}"
+        brew install aichat
+    fi
+elif [[ $OSTYPE == "Linux" ]]; then
+    echo -e "${YELLOW}You can get aichat from https://github.com/sigoden/aichat?tab=readme-ov-file${NC}"
+fi
 
 # setopt combining_chars if shell=zsh
 if [[ $SHELL =~ "zsh" ]]; then
@@ -230,3 +240,8 @@ fi
 
 echo -e "${GREEN}Stowing nix files${NC}"
 stow -R -t "$HOME/.config/nix" nix
+
+# Warn if aichat config does not exist
+if [ ! -f "$HOME/.config/aichat/config.yaml" ]; then
+    echo -e "${YELLOW}Warning: $HOME/.config/aichat/config.yaml does not exist. You may want to make sure the config exists with models and API keys.${NC}"
+fi
