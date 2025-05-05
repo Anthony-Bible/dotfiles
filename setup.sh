@@ -25,8 +25,10 @@ if [[ $(uname) == "Darwin" ]]; then
 else
     _sed=$(which sed)
 fi
+
 mkdir -p ~/.local/bin
 OSTYPE=$(uname)
+ARCH=$(uname -m)
 if [[ $OSTYPE == "Linux" ]]; then
    if ! command -v nvim &> /dev/null; then
     curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage
@@ -79,7 +81,6 @@ grep -q -F 'source $HOME/.zsh-functions' "$HOME/.zshrc" || echo "source \$HOME/.
 
 
 # check if linux or mac and install wezterm
-OSTYPE=$(uname)
 if [[ $OSTYPE == "Linux" ]]; then
     # install wezterm
     if ! command -v wezterm &> /dev/null; then
@@ -92,7 +93,8 @@ elif [[ $OSTYPE == "Darwin" ]]; then
     # install wezterm
     if ! command -v wezterm &> /dev/null; then
         echo -e "${GREEN}Installing wezterm${NC}"
-        brew install --cask wezterm
+                    brew install --cask wezterm
+        fi
     fi
 fi
 
@@ -190,22 +192,56 @@ fi
 if [[ $OSTYPE == "Linux" ]]; then
     curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
     install minikube-linux-amd64 $HOME/.local/bin/minikube
-else
-    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
-    install minikube-darwin-amd64 $HOME/.local/bin/minikube
+elif [[ $OSTYPE == "Darwin" ]]; then
+    if [[ $ARCH == "arm64" ]]; then
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-arm64
+        install minikube-darwin-arm64 $HOME/.local/bin/minikube
+    else
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
+        install minikube-darwin-amd64 $HOME/.local/bin/minikube
+    fi
 fi
 
 #install kubectl
 if [[ $OSTYPE == "Linux" ]]; then
        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-else
-   #INSTALL kubectl for mac
-      curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/amd64/kubectl"
-     chmod +x ./kubectl
-
-     sudo mv ./kubectl /usr/local/bin/kubectl
+elif [[ $OSTYPE == "Darwin" ]]; then
+if ! command -v kubectl &> /dev/null; then
+    if [[ $ARCH == "arm64" ]]; then
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/arm64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+    else
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/amd64/kubectl"
+        chmod +x ./kubectl
+        sudo mv ./kubectl /usr/local/bin/kubectl
+    fi
+    fi
 fi
+
+# Install Miniconda if not already installed
+if ! command -v conda &> /dev/null; then
+    echo -e "${GREEN}Installing Miniconda${NC}"
+    if [[ $OSTYPE == "Linux" ]]; then
+        MINICONDA_SCRIPT=Miniconda3-latest-Linux-x86_64.sh
+        if [[ $ARCH == "aarch64" ]]; then
+            MINICONDA_SCRIPT=Miniconda3-latest-Linux-aarch64.sh
+        fi
+    elif [[ $OSTYPE == "Darwin" ]]; then
+        if [[ $ARCH == "arm64" ]]; then
+            MINICONDA_SCRIPT=Miniconda3-latest-MacOSX-arm64.sh
+        else
+            MINICONDA_SCRIPT=Miniconda3-latest-MacOSX-x86_64.sh
+        fi
+    fi
+    curl -LO "https://repo.anaconda.com/miniconda/$MINICONDA_SCRIPT"
+    bash "$MINICONDA_SCRIPT" -b -p "$HOME/miniconda3"
+    rm "$MINICONDA_SCRIPT"
+    # Add conda to PATH in .zshrc if not already present
+    grep -qF "$HOME/miniconda3/bin" "$HOME/.zshrc" || echo 'export PATH="$HOME/miniconda3/bin:$PATH"' >> "$HOME/.zshrc"
+fi
+
 #check if nix is installed
 if ! command -v nix > /dev/null; then
     curl -L https://nixos.org/nix/install
