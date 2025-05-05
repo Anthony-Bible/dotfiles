@@ -48,7 +48,7 @@ _ai_commit_msg_zsh() {
     # Using 'git ls-files --others --exclude-standard --modified --deleted' might be more comprehensive
     # than 'git status --porcelain', but let's stick to the original for now.
     local git_files
-    git_files=$(git status --porcelain | awk '{print $2}') # Get candidate files
+    git_files=$(git ls-files --others --exclude-standard --modified --deleted | sort -u ) # Get candidate files
 
     if [[ -z "$git_files" ]]; then
         zle -M "No files found by 'git status --porcelain'."
@@ -96,7 +96,8 @@ _ai_commit_msg_zsh() {
     fi
 
     tmpfile=$(mktemp /tmp/ai-commit-msg.XXXXXX)
- 
+     git add -- "${files_array[@]}"
+
 
     # Debugging: Use the array correctly
     # Use print -r -- to safely print array elements, one per line typically
@@ -106,12 +107,13 @@ _ai_commit_msg_zsh() {
     # Default 'git diff' is unstaged changes in working dir vs index.
     # Use the array expansion "${files_array[@]}"
     changes=$(git diff --cached -- "${files_array[@]}")
+    added_files=$(git diff --cached --name-only --diff-filter=A)
 
     # Check if changes are empty *before* calling AI
-    if [[ -z "$changes" ]]; then
+    if [[ -z "$changes" && -z "$added_files" ]]; then
 
         # Option 2: Proceed (AI might still generate a generic message)
-        print -r -- "Warning: No changes detected via 'git diff' for selected files."
+        print -r -- "Warning: No changes or added files detected via 'git diff' for selected files."
     fi
 
     # Ensure $AI_CHAT is defined and executable
@@ -126,7 +128,7 @@ _ai_commit_msg_zsh() {
     fi
 
     # Call the AI, quoting the changes variable
-    msg="$($AI_CHAT "generate a short, concise and accurate commit message (using conventional commits format) for the following changes: $changes")"
+    msg="$($AI_CHAT "generate a short, concise and accurate commit message (using conventional commits format) for the following changes: $changes, added files: $added_files")"
     # Check if AI returned an empty message
     if [[ -z "$msg" ]]; then
         BUFFER="" # Clear hourglass
@@ -141,7 +143,6 @@ _ai_commit_msg_zsh() {
 
     # Add the selected files using the array
     # This correctly handles filenames with spaces or special characters
-    git add -- "${files_array[@]}"
 
     # Set the buffer for the commit command
     BUFFER="git commit -F $tmpfile"
