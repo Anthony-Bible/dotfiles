@@ -150,7 +150,7 @@ _ai_commit_msg_zsh() {
     fi
 
     # Call the AI, quoting the changes variable
-    msg="$($AI_CHAT "generate a short, concise and accurate commit message (using conventional commits format) for the following changes: $changes, added files: $added_files")"
+    msg="$($AI_CHAT "generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes: $changes, added files: $added_files")"
     # Check if AI returned an empty message
     if [[ -z "$msg" ]]; then
         BUFFER="" # Clear hourglass
