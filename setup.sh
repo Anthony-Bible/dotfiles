@@ -8,12 +8,18 @@ GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 required_packages=(stow tmuxp git)
 # Check if required packages are installed
+missing_packages=()
 for package in "${required_packages[@]}"; do
     if ! command -v "$package" &> /dev/null; then
         echo -e "${RED}$package could not be found${NC}"
-        exit
+        missing_packages+=("$package")
     fi
 done
+
+if [ ${#missing_packages[@]} -ne 0 ]; then
+    echo -e "${RED}The following required packages are missing: ${missing_packages[*]}.${NC}"
+    exit 1
+fi
 
 # if macos use gsed instead of sed
 if [[ $(uname) == "Darwin" ]]; then
