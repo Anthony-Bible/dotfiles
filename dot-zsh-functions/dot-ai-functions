@@ -43,7 +43,16 @@ ai_commit_msg() {
 _ai_commit_msg_zsh() {
     # Use local -a for arrays
     local -a files_array # Declare files_array as an array
-    local files_string tmpfile msg changes # files_string will hold the space-separated list initially
+    local files_string tmpfile msg changes added_files # files_string will hold the space-separated list initially
+    local repo_root
+
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -z "$repo_root" ]]; then
+        BUFFER="" # Clear any pending message
+        zle -I && zle redisplay
+        zle -M "Error: Not a git repository."
+        return 1
+    fi
 
     # buffer equals an hourglass
     BUFFER="⌛ Generating commit message..."
@@ -51,7 +60,8 @@ _ai_commit_msg_zsh() {
 
     # Get list of potentially changed files (Modified, Added, Renamed, Copied, Untracked)
     local git_files_list
-    git_files_list=$(git ls-files --others --exclude-standard --modified --deleted | sort -u) # Get candidate files
+    # Run git ls-files from the repository root
+    git_files_list=$(git -C "$repo_root" ls-files --others --exclude-standard --modified --deleted | sort -u) # Get candidate files
 
     if [[ -z "$git_files_list" ]]; then
         zle -M "No files found to commit."
@@ -117,7 +127,8 @@ _ai_commit_msg_zsh() {
     # Ensure files_array elements are correctly passed to git add
     # If an element is "All files (select this to include all listed files)", it should not be passed to git add.
     # This is handled by the logic above which populates files_array with actual file names.
-    git add -- "${files_array[@]}"
+    # Run git add from the repository root
+    git -C "$repo_root" add -- "${files_array[@]}"
 
 
     # Debugging: Use the array correctly
@@ -128,9 +139,9 @@ _ai_commit_msg_zsh() {
     # Default 'git diff' is unstaged changes in working dir vs index.
     # Use the array expansion "${files_array[@]}"
     
-    
-    changes=$(git diff --cached -- "${files_array[@]}")
-    added_files=$(git diff --cached --name-only --diff-filter=A -- "${files_array[@]}") # Ensure diff is also scoped
+    # Run git diff from the repository root
+    changes=$(git -C "$repo_root" diff --cached -- "${files_array[@]}")
+    added_files=$(git -C "$repo_root" diff --cached --name-only --diff-filter=A -- "${files_array[@]}") # Ensure diff is also scoped
 
     # Check if changes are empty *before* calling AI
     if [[ -z "$changes" && -z "$added_files" ]]; then
