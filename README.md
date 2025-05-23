@@ -12,6 +12,29 @@ This repository contains personal configuration files (dotfiles) for Linux devel
 - **AI Chat Integration**: Zsh functions for using [aichat](https://github.com/sigoden/aichat) to explain commands and handle unknown commands interactively.
 - **Setup Script**: `setup.sh` automates stowing configs, installing dependencies, and setting up the environment.
 
+## Zsh Functions
+
+The `dot-zsh-functions/` directory contains several files that enhance the shell experience:
+
+- **`dot-zsh-functions`**:
+    - Sets up aliases for common commands (e.g., `k=kubectl`, `vi=nvim`).
+    - Exports essential environment variables (e.g., `EDITOR`, `VISUAL`, `GOPATH`, `PATH`).
+    - Defines `CheckIfDotDirFilesChanged`: A function that checks if the dotfiles directory has uncommitted changes or is not up-to-date with the remote repository.
+    - Sources other function files.
+- **`dot-ai-functions`**:
+    - Integrates `aichat` for AI-powered command assistance.
+    - `command_not_found_handler`: Uses `aichat` to suggest commands when an unknown command is entered.
+    - `explain` / `explain:`: Explains a given command using `aichat`.
+    - `_aichat_zsh` (ZLE widget, bound to `Alt-e`): Sends the current command line buffer to `aichat` and replaces it with the AI's suggestion.
+    - `ai_commit_msg`: Generates a commit message for staged changes using `aichat`.
+    - `_ai_commit_msg_zsh` (ZLE widget, bound to `Alt-g`): Interactively selects files (staged, modified, untracked, deleted) using `fzf` and then uses `aichat` to generate a commit message for the selected and staged files.
+- **`dot-tcn-functions`**:
+    - `dokuwiki_users`: A function to process a list of users for DokuWiki.
+    - `slumbering`: A function likely related to checking a PostgreSQL replication slot's status.
+    - `kamailio_compute`: A function for a specific calculation, possibly related to Kamailio.
+    - `get_iam`: A function to fetch IAM policy for a Google Cloud IAP-secured web resource.
+    - Exports various Ansible and Google Cloud related environment variables.
+
 ## Directory Structure
 
 ```
