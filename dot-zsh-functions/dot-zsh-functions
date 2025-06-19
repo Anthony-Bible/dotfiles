@@ -19,7 +19,7 @@ if command -v gh &>/dev/null; then
 fi
 export GOPATH=$HOME/go
 export PATH=$PATH:$GOPATH/bin
-export PATH="$DENO_INSTALL/bin:$HOME/.local/bin:/usr/local/go/bin:/home2/anthony/Cluster/istio/istio-1.19.7/bin:$PATH"
+export PATH="$DENO_INSTALL/bin:$HOME/bin:$HOME/.local/bin:/usr/local/go/bin:/home2/anthony/Cluster/istio/istio-1.19.7/bin:$PATH"
 print_gopher(){
 cyan=`tput setaf 14`
 beige=`tput setaf 215`
@@ -42,8 +42,8 @@ echo "${reset}"
 }
 print_gopher
 #check if machine is macos
-eval $(thefuck --alias)
-alias crap="fuck"
+# eval $(thefuck --alias)
+# alias crap="fuck"
 eval $(minikube -p minikube docker-env)
 
 # echo warning if DOTFILESDIR var doesn't exist

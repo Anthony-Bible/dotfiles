@@ -7,11 +7,29 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 required_packages=(stow tmuxp git)
-# Check if required packages are installed
+packages_to_install=()
+for package in "${required_packages[@]}"; do
+    if ! command -v "$package" &> /dev/null; then
+        packages_to_install+=("$package")
+    fi
+done
+
+if [ ${#packages_to_install[@]} -ne 0 ]; then
+    echo -e "${YELLOW}Attempting to install missing packages: ${packages_to_install[*]}${NC}"
+    if [[ $(uname) == "Linux" ]]; then
+        sudo apt-get update && sudo apt-get install -y "${packages_to_install[@]}"
+    elif [[ $(uname) == "Darwin" ]]; then
+        brew install "${packages_to_install[@]}"
+    else
+        echo -e "${RED}Unsupported OS for automatic installation. Please install manually: ${packages_to_install[*]}${NC}"
+    fi
+fi
+
+# Final check to populate missing_packages for the following check
 missing_packages=()
 for package in "${required_packages[@]}"; do
     if ! command -v "$package" &> /dev/null; then
-        echo -e "${RED}$package could not be found${NC}"
+        echo -e "${RED}$package could not be found or installed.${NC}"
         missing_packages+=("$package")
     fi
 done
@@ -175,24 +193,69 @@ for go_package in $(cat "$DOTFILESDIR/go-packages.txt"); do
     go install "$go_package"
 done
 
-# install thefuck
-if [[ $OSTYPE == "Linux" ]]; then
- #Check if it's ubuntu or debian
- distro=$(lsb_release -i | awk -F':' '{print $2}')
- if [[ $distro =~ "Ubuntu" ]]; then
-     sudo apt update -y &&  sudo apt install -y python3-dev python3-pip python3-setuptools
-     pip3 install thefuck --user
-  else
-      if ! command -v pip 2> /dev/null; then
-          echo "please install pip"
-          exit 1
-      fi
-      pip install thefuck
-  fi
-elif [[ $OSTYPE == "Darwin" ]]; then
-   brew install thefuck
+# install ast-grep/sg
+if ! command -v ast-grep &> /dev/null && [ ! -f ~/bin/sg ]; then
+    echo -e "${GREEN}Installing ast-grep${NC}"
+    mkdir -p ~/bin
+    if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $ARCH == "aarch64" ]]; then
+            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-aarch64-unknown-linux-gnu.zip
+            unzip app-aarch64-unknown-linux-gnu.zip
+            mv sg ast-grep ~/bin/
+            rm app-aarch64-unknown-linux-gnu.zip
+        else
+            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip
+            unzip app-x86_64-unknown-linux-gnu.zip
+            mv sg ast-grep ~/bin/
+            rm app-x86_64-unknown-linux-gnu.zip
+        fi
+    elif [[ $OSTYPE == "Darwin" ]]; then
+        if [[ $ARCH == "arm64" ]]; then
+            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-aarch64-apple-darwin.zip
+            unzip app-aarch64-apple-darwin.zip
+            mv sg ast-grep ~/bin/
+            rm app-aarch64-apple-darwin.zip
+        else
+            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-apple-darwin.zip
+            unzip app-x86_64-apple-darwin.zip
+            mv sg ast-grep ~/bin/
+            rm app-x86_64-apple-darwin.zip
+        fi
+    fi
 fi
 
+
+#The fuck has problems sos we're commenting it out
+# # install thefuck
+# if [[ $OSTYPE == "Linux" ]]; then
+#  #Check if it's ubuntu or debian
+#  distro=$(lsb_release -i | awk -F':' '{print $2}')
+#  if [[ $distro =~ "Ubuntu" ]]; then
+#      sudo apt update -y &&  sudo apt install -y python3-dev python3-pip python3-setuptools
+#      pip3 install thefuck --user
+#   else
+#       if ! command -v pip 2> /dev/null; then
+#           echo "please install pip"
+#           exit 1
+#       fi
+#       pip install thefuck
+#   fi
+# elif [[ $OSTYPE == "Darwin" ]]; then
+#    brew install thefuck
+# fi
+# Uninstall thefuck if installed
+if command -v thefuck &> /dev/null; then
+    echo -e "${YELLOW}Uninstalling thefuck${NC}"
+    if [[ $OSTYPE == "Linux" ]]; then
+        pip3 uninstall -y thefuck 2>/dev/null || pip uninstall -y thefuck 2>/dev/null
+        sudo apt-get remove -y thefuck 2>/dev/null
+    elif [[ $OSTYPE == "Darwin" ]]; then
+        brew uninstall thefuck 2>/dev/null
+        pip3 uninstall -y thefuck 2>/dev/null || pip uninstall -y thefuck 2>/dev/null
+    fi
+    # Remove any thefuck lines from .zshrc
+    $_sed -i '/thefuck/d' "$HOME/.zshrc"
+fi
 #Install minikube
 if [[ $OSTYPE == "Linux" ]]; then
     curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
