@@ -6,7 +6,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
-required_packages=(stow tmuxp git)
+required_packages=(stow tmuxp git git-lfs)
 packages_to_install=()
 for package in "${required_packages[@]}"; do
     if ! command -v "$package" &> /dev/null; then
@@ -37,6 +37,12 @@ done
 if [ ${#missing_packages[@]} -ne 0 ]; then
     echo -e "${RED}The following required packages are missing: ${missing_packages[*]}.${NC}"
     exit 1
+fi
+
+# Ensure git-lfs is initialized for the user
+if command -v git-lfs &> /dev/null; then
+    echo -e "${GREEN}Running git-lfs install --user${NC}"
+    git-lfs install --user
 fi
 
 # if macos use gsed instead of sed
@@ -348,4 +354,27 @@ stow -R -t "$HOME/.config/nix" nix
 # Warn if aichat config does not exist
 if [ ! -f "$HOME/.config/aichat/config.yaml" ]; then
     echo -e "${YELLOW}Warning: $HOME/.config/aichat/config.yaml does not exist. You may want to make sure the config exists with models and API keys.${NC}"
+fi
+
+# Install nvm and set default Node.js version to 20
+if ! command -v nvm &> /dev/null; then
+    echo -e "${GREEN}Installing nvm${NC}"
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    # Source nvm in current shell for immediate use
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    # Add nvm source lines to .zshrc if not already present
+    grep -q 'NVM_DIR' "$HOME/.zshrc" || cat <<'EOF' >> "$HOME/.zshrc"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+EOF
+else
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+fi
+
+if command -v nvm &> /dev/null; then
+    echo -e "${GREEN}Ensuring Node.js v20 is installed and set as default${NC}"
+    nvm install 20
+    nvm alias default 20
 fi
