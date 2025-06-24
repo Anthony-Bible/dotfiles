@@ -1,0 +1,432 @@
+{
+  "quotes": [
+    {
+      "text": "The only way to do great work is to love what you do.",
+      "author": "Steve Jobs"
+    },
+    {
+      "text": "Innovation distinguishes between a leader and a follower.",
+      "author": "Steve Jobs"
+    },
+    {
+      "text": "Life is what happens to you while you're busy making other plans.",
+      "author": "John Lennon"
+    },
+    {
+      "text": "The future belongs to those who believe in the beauty of their dreams.",
+      "author": "Eleanor Roosevelt"
+    },
+    {
+      "text": "It is during our darkest moments that we must focus to see the light.",
+      "author": "Aristotle"
+    },
+    {
+      "text": "Success is not final, failure is not fatal: it is the courage to continue that counts.",
+      "author": "Winston Churchill"
+    },
+    {
+      "text": "The only impossible journey is the one you never begin.",
+      "author": "Tony Robbins"
+    },
+    {
+      "text": "In the middle of difficulty lies opportunity.",
+      "author": "Albert Einstein"
+    },
+    {
+      "text": "Believe you can and you're halfway there.",
+      "author": "Theodore Roosevelt"
+    },
+    {
+      "text": "The way to get started is to quit talking and begin doing.",
+      "author": "Walt Disney"
+    },
+    {
+      "text": "Whether you think you can or you think you can’t, you’re right.",
+      "author": "Henry Ford"
+    },
+    {
+      "text": "Your time is limited, so don’t waste it living someone else’s life.",
+      "author": "Steve Jobs"
+    },
+    {
+      "text": "All our dreams can come true, if we have the courage to pursue them.",
+      "author": "Walt Disney"
+    },
+    {
+      "text": "Great minds discuss ideas; average minds discuss events; small minds discuss people.",
+      "author": "Eleanor Roosevelt"
+    },
+    {
+      "text": "A ship in harbor is safe, but that is not what ships are built for.",
+      "author": "John A. Shedd"
+    },
+    {
+      "text": "Success is the sum of small efforts, repeated day in and day out.",
+      "author": "Robert Collier"
+    },
+    {
+      "text": "Greatness begins beyond your comfort zone.",
+      "author": "Robin Sharma"
+    },
+    {
+      "text": "Continuous effort – not strength or intelligence – is the key to unlocking our potential.",
+      "author": "Winston Churchill"
+    },
+    {
+      "text": "In order to succeed, your desire for success should be greater than your fear of failure.",
+      "author": "Bill Cosby"
+    },
+    {
+      "text": "Progress is impossible without change, and those who cannot change their minds cannot change anything.",
+      "author": "George Bernard Shaw"
+    },
+    {
+      "text": "If you can dream it. you can do it.",
+      "author": "Walt Disney"
+    },
+    {
+      "text": "Energy and persistence conquer all things.",
+      "author": "Benjamin Franklin"
+    },
+    {
+      "text": "Nothing will work unless you do.",
+      "author": "Maya Angelou"
+    },
+    {
+      "text": "Action is the foundational key to all success.",
+      "author": "Pablo Picasso"
+    },
+    {
+      "text": "The path to success is to take massive, determined action.",
+      "author": "Tony Robbins"
+    },
+    {
+      "text": "Strength does not come from winning. Your struggles develop your strengths. When you go through hardships and decide not to surrender, that is strength.",
+      "author": "Arnold Schwarzenegger"
+    },
+    {
+      "text": "The greatest glory in living lies not in never falling, but in rising every time we fall.",
+      "author": "Ralph Waldo Emerson"
+    },
+    {
+      "text": "Motivation is what gets you started. Habit is what keeps you going.",
+      "author": "Jim Rohn"
+    },
+    {
+      "text": "The difference between a successful person and others is not a lack of strength, not a lack of knowledge, but rather a lack of will.",
+      "author": "Vince Lombardi"
+    },
+    {
+      "text": "The mind is everything. What you think you become.",
+      "author": "Buddha"
+    },
+    {
+      "text": "Life is either a daring adventure or nothing at all.",
+      "author": "Helen Keller"
+    },
+    {
+      "text": "The secret of getting ahead is getting started.",
+      "author": "Mark Twain"
+    },
+    {
+      "text": "And in the end it is not the years in your life that count, it’s the life in your years.",
+      "author": "Abraham Lincoln"
+    },
+    {
+      "text": "Strength and growth come only through continuous effort and struggle.",
+      "author": "Napoleon Hill"
+    },
+    {
+      "text": "Kites rise highest against the wind – not with it.",
+      "author": "Winston Churchill"
+    },
+    {
+      "text": "Strength does not come from physical capacity. It comes from an indomitable will.",
+      "author": "Mahatma Gandhi"
+    },
+    {
+      "text": "Success is not measured by what you accomplish, but by the opposition you have encountered, and the courage with which you have maintained the struggle against overwhelming odds.",
+      "author": "Orison Swett Marden"
+    },
+    {
+      "text": "He who has a why to live for can bear almost any how.",
+      "author": "Friedrich Nietzsche"
+    },
+    {
+      "text": "Inaction breeds doubt and fear. Action breeds confidence and courage. If you want to conquer fear, do not sit home and think about it. Go out and get busy.",
+      "author": "Dale Carnegie"
+    },
+    {
+      "text": "I fear not the man who has practiced 10,000 kicks once, but I fear the man who has practiced one kick 10,000 times.",
+      "author": "Bruce Lee"
+    },
+    {
+      "text": "The best revenge is massive success.",
+      "author": "Frank Sinatra"
+    },
+    {
+      "text": "The biggest mistake people make in life is NOT making a living at doing what they most enjoy.",
+      "author": "Malcolm S. Forbes"
+    },
+    {
+      "text": "Nothing in this world can take the place of persistence. Talent will not; nothing is more common than unsuccessful men with talent. Genius will not; unrewarded genius is almost a proverb. Education will not; the world is full of educated derelicts. Persistence and determination alone are omnipotent.",
+      "author": "Calvin Coolidge"
+    },
+    {
+      "text": "I’ve missed more than 9000 shots in my career. I’ve lost almost 300 games. 26 times I’ve been trusted to take the game winning shot and missed. I’ve failed over and over and over again in my life. And that is why I succeed.",
+      "author": "Michael Jordan"
+    },
+    {
+      "text": "Definiteness of purpose is the starting point of all achievement.",
+      "author": "W. Clement Stone"
+    },
+    {
+      "text": "Take up one idea. Make that one idea your life – think of it, dream of it, live on that idea. Let the brain, muscles, nerves, every part of your body, be full of that idea, and just leave every other idea alone. This is the way to success.",
+      "author": "Swami Vivekananda"
+    },
+    {
+      "text": "A person who never made a mistake never tried anything new.",
+      "author": "Albert Einstein"
+    },
+    {
+      "text": "I have not failed. I’ve just found 10,000 ways that won’t work.",
+      "author": "Thomas Edison"
+    },
+    {
+      "text": "Singleness of purpose is one of the chief essentials for success in life, no matter what may be one’s aim.",
+      "author": "John D. Rockefeller"
+    },
+    {
+      "text": "Anyone who lives within their means suffers from a lack of imagination.",
+      "author": "Oscar Wilde"
+    },
+    {
+      "text": "There is only one way to avoid criticism: do nothing, say nothing, and be nothing.",
+      "author": "Aristotle"
+    },
+    {
+      "text": "Don’t let the fear of losing be greater than the excitement of winning.",
+      "author": "Robert Kiyosaki"
+    },
+    {
+      "text": "Life shrinks or expands in proportion to one’s courage.",
+      "author": "Anais Nin"
+    },
+    {
+      "text": "Change your thoughts and you change your world.",
+      "author": "Norman Vincent Peale"
+    },
+    {
+      "text": "The only people who don’t make mistakes are those who do nothing, and that is the biggest mistake of all.",
+      "author": "Dr William Reilly"
+    },
+    {
+      "text": "Move out of your comfort zone. You can only grow if you are willing to feel awkward and uncomfortable when you try something new.",
+      "author": "Brian Tracy"
+    },
+    {
+      "text": "When I let go of what I am, I become what I might be.",
+      "author": "Lao Tzu"
+    },
+    {
+      "text": "Only those who will risk going too far can possibly find out how far one can go.",
+      "author": "T. S. Eliot"
+    },
+    {
+      "text": "Be brave. Take risks. Nothing can substitute experience.",
+      "author": "Paulo Coelho"
+    },
+    {
+      "text": "Dreams don’t work unless you do.",
+      "author": "John C. Maxwell"
+    },
+    {
+      "text": "Focus on being productive instead of busy.",
+      "author": "Tim Ferriss"
+    },
+    {
+      "text": "A winner is a dreamer who never gives up.",
+      "author": "Nelson Mandela"
+    },
+    {
+      "text": "Doubt kills more dreams than failure ever will.",
+      "author": "Suzy Kassem"
+    },
+    {
+      "text": "Too many of us are not living our dreams because we are living our fears.",
+      "author": "Les Brown"
+    },
+    {
+      "text": "Success is the child of audacity.",
+      "author": "Benjamin Disraeli"
+    },
+    {
+      "text": "A comfort zone is a beautiful place, but nothing ever grows there.",
+      "author": "John Assaraf"
+    },
+    {
+      "text": "It is never too late to be what you might have been.",
+      "author": "George Eliot"
+    },
+    {
+      "text": "Happiness is not something readymade. It comes from your own actions.",
+      "author": "Dalai Lama"
+    },
+    {
+      "text": "It always seems impossible until it’s done.",
+      "author": "Nelson Mandela"
+    },
+    {
+      "text": "Nothing happens unless first a dream.",
+      "author": "Carl Sandburg"
+    },
+    {
+      "text": "Dream is not the thing you see in sleep but is that thing that doesn’t let you sleep.",
+      "author": "A. P. J. Abdul Kalam"
+    },
+    {
+      "text": "What lies behind us and what lies before us are tiny matters compared to what lies within us.",
+      "author": "Ralph Waldo Emerson"
+    },
+    {
+      "text": "If you can’t fly, then run. If you can’t run, then walk. If you can’t walk, then crawl, but whatever you do, you have to keep moving forward.",
+      "author": "Martin Luther King, Jr."
+    },
+    {
+      "text": "Don’t limit yourself. Many people limit themselves to what they think they can do. You can go as far as your mind lets you. What you believe, you can achieve.",
+      "author": "Mary Kay Ash"
+    },
+    {
+      "text": "Go confidently in the direction of your dreams. Live the life you have imagined.",
+      "author": "Henry David Thoreau"
+    },
+    {
+      "text": "You can be discouraged by failure or you can learn from it. So go ahead and make mistakes. Make all you can because that’s where you will find success, on the other side of failure.",
+      "author": "Thomas Watson"
+    },
+    {
+      "text": "A man who dares to waste one hour of time has not discovered the value of life.",
+      "author": "Charles Darwin"
+    },
+    {
+      "text": "Anyone who stops learning is old, whether twenty or eighty. Anyone who keeps learning stays young. The greatest thing you can do is keep your mind young.",
+      "author": "Mark Twain"
+    },
+    {
+      "text": "Either write something worth reading or do something worth writing.",
+      "author": "Benjamin Franklin"
+    },
+    {
+      "text": "People are not lazy. They simply have impotent goals – that is, goals that do not inspire them.",
+      "author": "Tony Robbins"
+    },
+    {
+      "text": "Take care of your body. It’s the only place you have to live.",
+      "author": "Jim Rohn"
+    },
+    {
+      "text": "He who is not courageous enough to take risks will accomplish nothing in life.",
+      "author": "Muhammad Ali"
+    },
+    {
+      "text": "Never give up. You only get one life. Go for it!",
+      "author": "Richard E. Grant"
+    },
+    {
+      "text": "Every man dies. Not every man really lives.",
+      "author": "William Wallace"
+    },
+    {
+      "text": "Diligence is the mother of good fortune.",
+      "author": "Benjamin Disraeli"
+    },
+    {
+      "text": "You may encounter many defeats, but you must not be defeated. In fact, it may be necessary to encounter the defeats, so you can know who you are, what you can rise from, how you can still come out of it.",
+      "author": "Maya Angelou"
+    },
+    {
+      "text": "Great works are performed not by strength but by perseverance.",
+      "author": "Samuel Johnson"
+    },
+    {
+      "text": "Lack of direction, not lack of time, is the problem. We all have twenty-four hour days.",
+      "author": "Zig Ziglar"
+    },
+    {
+      "text": "The more that you read, the more things you will know, the more that you learn, the more places you’ll go.",
+      "author": "Dr. Seuss"
+    },
+    {
+      "text": "Our greatest weakness lies in giving up. The most certain way to succeed is always to try just one more time.",
+      "author": "Thomas Edison"
+    },
+    {
+      "text": "Success consists of going from failure to failure without loss of enthusiasm.",
+      "author": "Winston Churchill"
+    },
+    {
+      "text": "You are the average of the five people you spend the most time with.",
+      "author": "Jim Rohn"
+    },
+    {
+      "text": "Life is inherently risky. There is only one big risk you should avoid at all costs, and that is the risk of doing nothing.",
+      "author": "Denis Waitley"
+    },
+    {
+      "text": "People rarely succeed unless they have fun in what they are doing.",
+      "author": "Dale Carnegie"
+    },
+    {
+      "text": "Thinking will not overcome fear but action will.",
+      "author": "W. Clement Stone"
+    },
+    {
+      "text": "The size of your success is measured by the strength of your desire; the size of your dream; and how you handle disappointment along the way.",
+      "author": "Robert Kiyosaki"
+    },
+    {
+      "text": "The only person you are destined to become is the person you decide to be.",
+      "author": "Ralph Waldo Emerson"
+    },
+    {
+      "text": "The difference between where you are today and where you’ll be five years from now will be found in the quality of books you’ve read.",
+      "author": "Jim Rohn"
+    },
+    {
+      "text": "The journey of a thousand miles begins with one step.",
+      "author": "Lao Tzu"
+    },
+    {
+      "text": "The important thing is that we must be constantly moving forward – yes, the progress realization of a predetermined goal. And our growth should never end.",
+      "author": "Og Mandino"
+    },
+    {
+      "text": "Men who know exactly what they want of life, and are determined to get it, do not stop with wishing. They intensify their wishes into a burning desire, and back that desire with continuous effort based on a sound plan.",
+      "author": "Andrew Carnegie"
+    },
+    {
+      "text": "Without continual growth and progress, such words as improvement, achievement, and success have no meaning.",
+      "author": "Benjamin Franklin"
+    },
+    {
+      "text": "The moment a man ceases to progress, to grow higher, wider and deeper, then his life becomes stagnant.",
+      "author": "Orison S. Marden"
+    },
+    {
+      "text": "Discontent is the first necessity of progress.",
+      "author": "Thomas A. Edison"
+    },
+    {
+      "text": "Tough times never last, but tough people do.",
+      "author": "Robert H. Schuller"
+    },
+    {
+      "text": "It’s the possibility of having a dream come true that makes life interesting.",
+      "author": "Paulo Coelho"
+    },
+    {
+      "text": "Your world is a living expression of how you are using and have used your mind.",
+      "author": "Earl Nightingale"
+    }
+  ]
+}

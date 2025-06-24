@@ -41,8 +41,12 @@ fi
 
 # Ensure git-lfs is initialized for the user
 if command -v git-lfs &> /dev/null; then
-    echo -e "${GREEN}Running git-lfs install --user${NC}"
-    git-lfs install --user
+    echo -e "${GREEN}Running git-lfs install${NC}"
+    if [[ $(uname) == "Darwin" ]]; then
+        git-lfs install --user
+    else
+        git-lfs install
+    fi
 fi
 
 # if macos use gsed instead of sed
@@ -377,4 +381,9 @@ if command -v nvm &> /dev/null; then
     echo -e "${GREEN}Ensuring Node.js v20 is installed and set as default${NC}"
     nvm install 20
     nvm alias default 20
+    # Install claude-code
+    if ! command -v claude &> /dev/null; then
+        echo -e "${GREEN}Installing claude-code${NC}"
+        npm install -g @anthropic-ai/claude-code
+    fi
 fi
