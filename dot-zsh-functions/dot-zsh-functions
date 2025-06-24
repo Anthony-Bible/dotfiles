@@ -41,6 +41,14 @@ echo $"${beige}      oO${cyan}:::::::${beige}Oo"
 echo "${reset}"
 }
 print_gopher
+# Call the random quote script from dotfiles directory
+if [[ -n "$DOTFILESDIR" && -x "$DOTFILESDIR/random-quote.sh" ]]; then
+    "$DOTFILESDIR/random-quote.sh" "$DOTFILESDIR/quotes.json"
+elif [[ -x "/home/anthony/dotfiles/random-quote.sh" ]]; then
+    "/home/anthony/dotfiles/random-quote.sh" "/home/anthony/dotfiles/quotes.json"
+else
+    echo "💭 Random quote script not found or not executable"
+fi
 #check if machine is macos
 # eval $(thefuck --alias)
 # alias crap="fuck"
