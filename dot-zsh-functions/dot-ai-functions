@@ -244,12 +244,10 @@ ensure_node_20() {
 
 # Create a script using Claude Code with Write, Edit, and Read tools allowed
 create-script() {
-    set -x
     ensure_node_20 # Ensure Node.js is at version 20.x.x before running the command
     claude -p "$*" \
-        --system-prompt "You are a senior devops engineer and system administrator. Your goal is to create robust, secure, and maintainable scripts. When you write code, follow best practices, include comments for complex parts, and ensure the script is easy to understand and use. After writing the script, provide a brief explanation of what it does and how to use it." \
+        --append-system-prompt "You are a senior devops engineer and system administrator. Your goal is to create robust, secure, and maintainable scripts. When you write code, follow best practices, include comments for complex parts, and ensure the script is easy to understand and use. After writing the script, provide a brief explanation of what it does and how to use it. Create a file if neccessary" \
         --allowedTools "Write,Edit,Read,MultiEdit"
-    set +x
 }
 
 alias edit-script="create-script"
