@@ -43,7 +43,7 @@ fi
 if command -v git-lfs &> /dev/null; then
     echo -e "${GREEN}Running git-lfs install${NC}"
     if [[ $(uname) == "Darwin" ]]; then
-        git-lfs install --user
+        git-lfs install --local
     else
         git-lfs install
     fi
