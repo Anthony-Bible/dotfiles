@@ -92,7 +92,7 @@ DOTFILESDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 # stow .zshrc functions file in home directory
 echo -e "${GREEN}Stowing zsh files${NC}"
 # Put a line to export DOTFILESDIR in .zshrc only if it doesn't already exist
-grep -q -F "export DOTFILESDIR=$DOTFILESDIR" "$HOME/.zshrc" || echo "export DOTFILESDIR=$DOTFILESDIR" >> "$HOME/.zshrc"
+grep -q -F "export DOTFILESDIR=" "$HOME/.zshrc" || echo "export DOTFILESDIR=\"$DOTFILESDIR\"" >> "$HOME/.zshrc"
 stow -R -t "$HOME" --dotfiles dot-zsh-functions
 
 # Clone the tmux plugin manager
@@ -202,6 +202,12 @@ for go_package in $(cat "$DOTFILESDIR/go-packages.txt"); do
     echo -e "${YELLOW}Installing $go_package${NC}"
     go install "$go_package"
 done
+
+# Install gofumpt
+if ! command -v gofumpt &> /dev/null; then
+    echo -e "${GREEN}Installing gofumpt${NC}"
+    go install mvdan.cc/gofumpt@latest
+fi
 
 # install ast-grep/sg
 if ! command -v ast-grep &> /dev/null && [ ! -f ~/bin/sg ]; then
@@ -386,4 +392,29 @@ if command -v nvm &> /dev/null; then
         echo -e "${GREEN}Installing claude-code${NC}"
         npm install -g @anthropic-ai/claude-code
     fi
+    echo -e "${GREEN}Updating gemini-cli${NC}"
+    npm update -g @google/gemini-cli
+fi
+
+# Setup Claude hooks configuration
+echo -e "${GREEN}Setting up Claude hooks configuration${NC}"
+CLAUDE_HOOKS_FILE="$DOTFILESDIR/claude-hooks.json"
+CLAUDE_SETTINGS_FILE="$HOME/.claude/settings.json"
+
+if [[ -f "$CLAUDE_HOOKS_FILE" ]]; then
+    # Create .claude directory if it doesn't exist
+    mkdir -p "$HOME/.claude"
+    
+    if [[ -f "$CLAUDE_SETTINGS_FILE" ]]; then
+        # Merge hooks into existing settings
+        echo -e "${YELLOW}Merging Claude hooks into existing settings${NC}"
+        jq -s '.[0] * .[1]' "$CLAUDE_SETTINGS_FILE" "$CLAUDE_HOOKS_FILE" > "$CLAUDE_SETTINGS_FILE.tmp"
+        mv "$CLAUDE_SETTINGS_FILE.tmp" "$CLAUDE_SETTINGS_FILE"
+    else
+        # Create new settings file with hooks
+        echo -e "${YELLOW}Creating new Claude settings file with hooks${NC}"
+        jq '. + {"model": "sonnet"}' "$CLAUDE_HOOKS_FILE" > "$CLAUDE_SETTINGS_FILE"
+    fi
+else
+    echo -e "${RED}Warning: $CLAUDE_HOOKS_FILE not found, skipping Claude hooks setup${NC}"
 fi
