@@ -15,8 +15,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path | select(endswith(\".sh\"))' |  \"${DOTFILESDIR}\"/scripts/shellformat.sh"
+            "command": "$DOTFILESDIR/scripts/shellformat.sh"
           }
+
         ]
       }
     ]
