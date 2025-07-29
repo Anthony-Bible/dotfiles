@@ -2,6 +2,8 @@
 AI_CHAT_COMMAND=$(which aichat 2>/dev/null)
 AI_EXECUTE=("$AI_CHAT_COMMAND" "-e")
 AI_CHAT="$AI_CHAT_COMMAND"
+
+export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
 # Use aichat to handle unknown commands
 command_not_found_handler() {
    $AI_EXECUTE "$@"

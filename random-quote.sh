@@ -7,7 +7,6 @@ set -euo pipefail
 
 # Default quotes file path
 QUOTES_FILE="${1:-quotes.json}"
-
 # Check if jq is installed
 if ! command -v jq &> /dev/null; then
     echo "Error: jq is required but not installed. Please install jq first." >&2
@@ -64,15 +63,22 @@ RANDOM_INDEX=$((RANDOM % QUOTE_COUNT))
 QUOTE_TEXT=$(jq -r ".quotes[$RANDOM_INDEX].text" "$QUOTES_FILE")
 QUOTE_AUTHOR=$(jq -r ".quotes[$RANDOM_INDEX].author" "$QUOTES_FILE")
 
-# Display the quote with nice formatting
+# Color codes
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# Display the quote with nice formatting and colors
 echo ""
-echo "💭 Random Inspirational Quote:"
+echo -e "${CYAN}💭 Random Inspirational Quote:${RESET}"
 echo ""
-echo "\"$QUOTE_TEXT\""
+echo -e "${BOLD}\"${YELLOW}$QUOTE_TEXT${RESET}${BOLD}\"${RESET}"
 echo ""
 if [[ "$QUOTE_AUTHOR" != "null" && -n "$QUOTE_AUTHOR" ]]; then
-    echo "— $QUOTE_AUTHOR"
+    echo -e "${GREEN}— $QUOTE_AUTHOR${RESET}"
 else
-    echo "— Anonymous"
+    echo -e "${GREEN}— Anonymous${RESET}"
 fi
 echo ""
