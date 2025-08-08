@@ -418,3 +418,17 @@ if [[ -f "$CLAUDE_HOOKS_FILE" ]]; then
 else
     echo -e "${RED}Warning: $CLAUDE_HOOKS_FILE not found, skipping Claude hooks setup${NC}"
 fi
+
+# Setup Claude agents
+echo -e "${GREEN}Setting up Claude agents${NC}"
+CLAUDE_AGENTS_DIR="$DOTFILESDIR/.claude/agents"
+if [[ -d "$CLAUDE_AGENTS_DIR" ]]; then
+    # Create .claude/agents directory if it doesn't exist
+    mkdir -p "$HOME/.claude/agents"
+    
+    # Copy all agent files from dotfiles to home directory
+    echo -e "${YELLOW}Copying Claude agents to ~/.claude/agents/${NC}"
+    cp -r "$CLAUDE_AGENTS_DIR"/* "$HOME/.claude/agents/"
+else
+    echo -e "${RED}Warning: $CLAUDE_AGENTS_DIR not found, skipping Claude agents setup${NC}"
+fi
