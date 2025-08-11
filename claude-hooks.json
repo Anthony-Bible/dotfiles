@@ -6,15 +6,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path | select(endswith(\".go\"))' | xargs -r gofumpt -w"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
             "command": "$DOTFILESDIR/scripts/openapi-lint.sh"
           }
 
@@ -26,6 +17,16 @@
           {
             "type": "command",
             "command": "$DOTFILESDIR/scripts/shellformat.sh"
+          }
+
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$DOTFILESDIR/scripts/goformat.sh"
           }
 
         ]

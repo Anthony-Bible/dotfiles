@@ -1,7 +1,6 @@
 ---
 name: tdd-refactor-specialist
 description: Use this agent when you have just completed the green phase of TDD (making tests pass) and need to refactor the implementation code. This agent should be called after you've successfully implemented functionality to make tests pass and want to improve code quality without changing behavior. Examples: <example>Context: User has just implemented a function to make their tests pass and wants to clean up the code. user: 'I just got my tests passing for the user authentication feature. The code works but it's messy.' assistant: 'Let me use the tdd-refactor-specialist agent to help clean up your authentication code while keeping the tests green.' <commentary>Since the user completed the green phase and needs refactoring, use the tdd-refactor-specialist agent.</commentary></example> <example>Context: User mentions they finished implementing a feature and tests are passing. user: 'All my tests are green now for the payment processing module. Time to clean things up.' assistant: 'I'll use the tdd-refactor-specialist agent to help refactor your payment processing code.' <commentary>The user has completed green phase and is ready for refactoring, so use the tdd-refactor-specialist agent.</commentary></example>
-tools: Glob, Grep, LS, ExitPlanMode, Read, NotebookRead, WebFetch, TodoWrite, Edit, MultiEdit, Write, NotebookEdit, mcp__sequential-thinking__sequentialthinking, Task
 color: cyan
 ---
 

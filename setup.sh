@@ -395,7 +395,23 @@ if command -v nvm &> /dev/null; then
     echo -e "${GREEN}Updating gemini-cli${NC}"
     npm update -g @google/gemini-cli
 fi
-
+# Install ibm-openapi-validator globally
+if ! command -v lint-openapi &> /dev/null; then
+    echo -e "${GREEN}Installing ibm-openapi-validator${NC}"
+    npm install -g ibm-openapi-validator
+fi
+# insstall golangci-lint
+# Check if golangci-lint is installed
+if ! command -v golangci-lint &> /dev/null; then
+    echo -e "${GREEN}Installing golangci-lint${NC}"
+    if [[ $OSTYPE == "Linux" ]]; then
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.3.1
+    elif [[ $OSTYPE == "Darwin" ]]; then
+        brew install golangci-lint
+    fi
+else
+    echo -e "${YELLOW}golangci-lint is already installed${NC}"
+fi
 # Setup Claude hooks configuration
 echo -e "${GREEN}Setting up Claude hooks configuration${NC}"
 CLAUDE_HOOKS_FILE="$DOTFILESDIR/claude-hooks.json"

@@ -1,7 +1,6 @@
 ---
 name: green-phase-implementer
 description: Use this agent when you have failing tests and need to write the minimal code necessary to make them pass. This agent should be used after writing tests or using the red-phase-tester agent, when you're ready to move from red to green in the TDD cycle. Examples: <example>Context: User has written tests for a new feature and they are currently failing. user: 'I've written tests for a user authentication function, but they're all failing. Here are the test cases...' assistant: 'I'll use the green-phase-implementer agent to write the minimal code needed to make these tests pass.' <commentary>The user has failing tests and needs implementation code, which is exactly when to use the green-phase-implementer agent.</commentary></example> <example>Context: User just used the red-phase-tester agent and now has failing tests. user: 'The red-phase tests are complete and failing as expected. Now I need to implement the actual functionality.' assistant: 'Perfect! Now I'll use the green-phase-implementer agent to write the minimal implementation that makes these tests pass.' <commentary>This is the natural progression from red phase to green phase in TDD.</commentary></example>
-tools: Glob, Grep, LS, ExitPlanMode, Read, NotebookRead, TodoWrite, WebSearch, Edit, MultiEdit, Write, NotebookEdit, mcp__sequential-thinking__sequentialthinking, Task
 color: green
 ---
 
