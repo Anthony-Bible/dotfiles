@@ -101,8 +101,16 @@ if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
     echo -e "${GREEN}Cloning tmux plugin manager${NC}"
     git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 else
-    echo -e "${YELLOW}Pulling tmux plugin manager${NC}"
-    git -C "$HOME/.tmux/plugins/tpm" pull
+    # Check if the directory is a git repository
+    if git -C "$HOME/.tmux/plugins/tpm" rev-parse --git-dir > /dev/null 2>&1; then
+        echo -e "${YELLOW}Pulling tmux plugin manager${NC}"
+        git -C "$HOME/.tmux/plugins/tpm" pull
+    else
+        echo -e "${RED}Warning: $HOME/.tmux/plugins/tpm exists but is not a git repository${NC}"
+        echo -e "${YELLOW}Removing existing directory and cloning fresh${NC}"
+        rm -rf "$HOME/.tmux/plugins/tpm"
+        git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+    fi
 fi
 
 # Get hostname to see if it matches tcn
@@ -405,7 +413,7 @@ fi
 if ! command -v golangci-lint &> /dev/null; then
     echo -e "${GREEN}Installing golangci-lint${NC}"
     if [[ $OSTYPE == "Linux" ]]; then
-        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.3.1
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.3.1
     elif [[ $OSTYPE == "Darwin" ]]; then
         brew install golangci-lint
     fi
