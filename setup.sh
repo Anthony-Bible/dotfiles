@@ -427,3 +427,12 @@ if [[ -f "$DOTFILESDIR/setup-claude.sh" ]]; then
 else
     echo -e "${RED}Warning: setup-claude.sh not found, skipping Claude configuration${NC}"
 fi
+
+# Copy configuration files to home directory
+echo -e "${GREEN}Copying configuration files to home directory${NC}"
+if [[ -f "$DOTFILESDIR/scripts/copy-configs.sh" ]]; then
+    chmod +x "$DOTFILESDIR/scripts/copy-configs.sh"
+    bash "$DOTFILESDIR/scripts/copy-configs.sh"
+else
+    echo -e "${RED}Warning: scripts/copy-configs.sh not found, skipping configuration file copying${NC}"
+fi

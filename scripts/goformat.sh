@@ -44,7 +44,7 @@ if [[ $# -gt 0 ]]; then
         
         # Lint with golangci-lint
         echo "Running golangci-lint on $filepath"
-        golangci_output=$(golangci-lint run ./... 2>&1)
+        golangci_output=$(golangci-lint run --fix ./... 2>&1)
         lint_exit_code=$?
 
         if [[ $lint_exit_code -ne 0 ]]; then
@@ -89,7 +89,7 @@ else
         
         # Lint with golangci-lint
         echo "Running golangci-lint on $filepath"
-        golangci_output=$(golangci-lint run ./... 2>&1)
+        golangci_output=$(golangci-lint run --fix ./... 2>&1)
         lint_exit_code=$?
 
         if [[ $lint_exit_code -ne 0 ]]; then
