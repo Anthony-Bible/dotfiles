@@ -22,6 +22,7 @@ formatters:
   enable:
     - goimports # checks if the code and import statements are formatted according to the 'goimports' command
     - golines # checks if code is formatted, and fixes long lines
+    - gofumpt # checks if code is formatted, and fixes long lines with stricter rules than 'gofmt'
 
     ## you may want to enable
     #- gci # checks if code and import statements are formatted, with additional rules
@@ -306,18 +307,13 @@ linters:
     govet:
       # Enable all analyzers.
       # Default: false
-      enable-all: true
+      enable-all: false 
       # Disable analyzers by name.
       # Run `GL_DEBUG=govet golangci-lint run --enable=govet` to see default, all available analyzers, and enabled analyzers.
       # Default: []
       disable:
         - fieldalignment # too strict
       # Settings per analyzer.
-      settings:
-        shadow:
-          # Whether to be strict about shadowing; can be noisy.
-          # Default: false
-          strict: true
 
     inamedparam:
       # Skips check for interface methods with only a single parameter.

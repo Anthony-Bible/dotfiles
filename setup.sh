@@ -93,7 +93,11 @@ DOTFILESDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 echo -e "${GREEN}Stowing zsh files${NC}"
 # Put a line to export DOTFILESDIR in .zshrc only if it doesn't already exist
 grep -q -F "export DOTFILESDIR=" "$HOME/.zshrc" || echo "export DOTFILESDIR=\"$DOTFILESDIR\"" >> "$HOME/.zshrc"
-stow -R -t "$HOME" --dotfiles dot-zsh-functions
+stow -R -t "$HOME" --dotfiles dot-zsh-functionsa
+
+# stow .golangci.yaml file in home directory
+echo -e "${GREEN}Stowing golangci files${NC}"
+stow -R -t "$HOME" --dotfiles dot-config-files
 
 # Clone the tmux plugin manager
 # Only clone if it does not exist otherwise pull the repo
@@ -428,11 +432,3 @@ else
     echo -e "${RED}Warning: setup-claude.sh not found, skipping Claude configuration${NC}"
 fi
 
-# Copy configuration files to home directory
-echo -e "${GREEN}Copying configuration files to home directory${NC}"
-if [[ -f "$DOTFILESDIR/scripts/copy-configs.sh" ]]; then
-    chmod +x "$DOTFILESDIR/scripts/copy-configs.sh"
-    bash "$DOTFILESDIR/scripts/copy-configs.sh"
-else
-    echo -e "${RED}Warning: scripts/copy-configs.sh not found, skipping configuration file copying${NC}"
-fi
