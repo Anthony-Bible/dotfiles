@@ -32,7 +32,7 @@ if [[ $# -gt 0 ]]; then
         
         # Format with gofumpt
         echo "Running gofumpt on $filepath"
-        gofumpt -w "$filepath"
+        golangci-lint fmt "$filepath"
         format_exit_code=$?
         
         if [[ $format_exit_code -ne 0 ]]; then
@@ -77,7 +77,7 @@ else
         
         # Format with gofumpt
         echo "Running gofumpt on $filepath"
-        gofumpt -w "$filepath"
+        golangci-lint fmt ./...
         format_exit_code=$?
         
         if [[ $format_exit_code -ne 0 ]]; then
@@ -91,9 +91,13 @@ else
         echo "Running golangci-lint on $filepath"
         golangci_output=$(golangci-lint run --fix ./... 2>&1)
         lint_exit_code=$?
-
+        filepath_without_pwd=$(echo "$filepath" | sed "s|$(pwd)/||")
         if [[ $lint_exit_code -ne 0 ]]; then
-            echoerr "golangci-lint found issues, fix these one by one: $golangci_output" 
+            filespecific=$(echo "$golangci_output" | grep "$filepath_without_pwd" || true)
+        fi
+
+        if [[ -n $filespecific ]]; then
+            echoerr "golangci-lint found issues, fix these one by one, even if they're not related to your change as we like leaving the code better than we found it: $filespecific" 
             final_exit_code=2
         else
             echo "No golangci-lint issues found"
