@@ -38,7 +38,20 @@ zle -N _aichat_zsh
 
 # Generate a commit message using aichat and git diff
 ai_commit_msg() {
-    $AI_CHAT "generate a commit message for the following $(git diff)"
+    local diff_file
+    diff_file=$(mktemp /tmp/ai-commit-diff.XXXXXX) || return 1
+
+    # Capture current diff to a file instead of inlining into the prompt
+    git diff > "$diff_file"
+
+    # Pipe an instruction + the diff file content via stdin to avoid huge argv
+    "$AI_CHAT" <<EOF
+Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:
+
+$(cat "$diff_file")
+EOF
+
+    rm -f "$diff_file"
 }
 
 # ZLE widget for ai_commit_msg (menu-based file selection with "All" option)
@@ -164,13 +177,16 @@ _ai_commit_msg_zsh() {
     # Default 'git diff' is unstaged changes in working dir vs index.
     # Use the array expansion "${files_array[@]}"
     
-    # Run git diff from the repository root
-    changes=$(git -C "$repo_root" diff --cached -- "${files_array[@]}")
+    # Create a temp file to hold the staged diff for the selected files
+    local diff_file
+    diff_file=$(mktemp /tmp/ai-commit-diff.XXXXXX)
+
+    # Run git diff from the repository root and write to the diff file
+    git -C "$repo_root" diff --cached -- "${files_array[@]}" > "$diff_file"
     added_files=$(git -C "$repo_root" diff --cached --name-only --diff-filter=A -- "${files_array[@]}") # Ensure diff is also scoped
 
     # Check if changes are empty *before* calling AI
-    if [[ -z "$changes" && -z "$added_files" ]]; then
-        # Option 2: Proceed (AI might still generate a generic message)
+    if [[ ! -s "$diff_file" && -z "$added_files" ]]; then
         print -r -- "Warning: No changes or added files detected via 'git diff' for selected files."
     fi
 
@@ -180,13 +196,21 @@ _ai_commit_msg_zsh() {
        BUFFER="" # Clear hourglass
        zle -I && zle redisplay
        zle -M "Error: AI command '$AI_CHAT' not found or not executable."
-       rm -f $tmpfile # Clean up
-       trap - INT TERM EXIT # Remove trap
+       rm -f "$tmpfile" "$diff_file" # Clean up
        return 1
     fi
 
-    # Call the AI, quoting the changes variable
-    msg="$($AI_CHAT "generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes: $changes, added files: $added_files")"
+    # Build the prompt by piping instruction + diff file content via stdin
+    msg="$({
+        printf "%s\n\n" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:";
+        if [[ -n "$added_files" ]]; then
+            printf "Added files (names only):\n%s\n\n" "$added_files"
+        fi
+        cat "$diff_file"
+    } | "$AI_CHAT")"
+
+    # Remove the diff file after using it
+    rm -f "$diff_file"
     # Check if AI returned an empty message
     if [[ -z "$msg" ]]; then
         BUFFER="" # Clear hourglass
