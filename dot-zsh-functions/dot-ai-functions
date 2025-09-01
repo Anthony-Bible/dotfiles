@@ -45,11 +45,8 @@ ai_commit_msg() {
     git diff > "$diff_file"
 
     # Pipe an instruction + the diff file content via stdin to avoid huge argv
-    "$AI_CHAT" <<EOF
-Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:
+    "$AI_CHAT" -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:"
 
-$(cat "$diff_file")
-EOF
 
     rm -f "$diff_file"
 }
@@ -201,13 +198,7 @@ _ai_commit_msg_zsh() {
     fi
 
     # Build the prompt by piping instruction + diff file content via stdin
-    msg="$({
-        printf "%s\n\n" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:";
-        if [[ -n "$added_files" ]]; then
-            printf "Added files (names only):\n%s\n\n" "$added_files"
-        fi
-        cat "$diff_file"
-    } | "$AI_CHAT")"
+    "$AI_CHAT" -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes, added files (names only) $added_files:" 
 
     # Remove the diff file after using it
     rm -f "$diff_file"
