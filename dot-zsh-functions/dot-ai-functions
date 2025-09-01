@@ -1,7 +1,7 @@
 # Configurable aichat command variables
 AI_CHAT_COMMAND=$(which aichat 2>/dev/null)
-AI_EXECUTE=("$AI_CHAT_COMMAND" "-e")
-AI_CHAT="$AI_CHAT_COMMAND"
+AI_EXECUTE=("$AI_CHAT_COMMAND"  "-e")
+AI_CHAT="$AI_CHAT_COMMAND --model 'openai:gpt-5-mini"
 
 export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
 # Use aichat to handle unknown commands
