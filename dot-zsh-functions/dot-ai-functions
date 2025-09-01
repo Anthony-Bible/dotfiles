@@ -1,7 +1,7 @@
 # Configurable aichat command variables
 AI_CHAT_COMMAND=$(which aichat 2>/dev/null)
 AI_EXECUTE=("$AI_CHAT_COMMAND"  "-e")
-AI_CHAT="$AI_CHAT_COMMAND --model 'openai:gpt-5-mini"
+AI_CHAT="$AI_CHAT_COMMAND"
 
 export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
 # Use aichat to handle unknown commands
@@ -45,7 +45,7 @@ ai_commit_msg() {
     git diff > "$diff_file"
 
     # Pipe an instruction + the diff file content via stdin to avoid huge argv
-    "$AI_CHAT" -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:"
+    "$AI_CHAT" --model openai:gpt-5-mini -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes:"
 
 
     rm -f "$diff_file"
@@ -53,6 +53,7 @@ ai_commit_msg() {
 
 # ZLE widget for ai_commit_msg (menu-based file selection with "All" option)
 _ai_commit_msg_zsh() {
+set -x
     # Use local -a for arrays
     local -a files_array # Declare files_array as an array
     local files_string tmpfile msg changes added_files # files_string will hold the space-separated list initially
@@ -198,7 +199,7 @@ _ai_commit_msg_zsh() {
     fi
 
     # Build the prompt by piping instruction + diff file content via stdin
-    "$AI_CHAT" -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes, added files (names only) $added_files:" 
+    msg=$("$AI_CHAT" --model openai:gpt-5-mini -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes, added files (names only) $added_files:")
 
     # Remove the diff file after using it
     rm -f "$diff_file"
@@ -220,6 +221,7 @@ _ai_commit_msg_zsh() {
     # Set the buffer for the commit command
     BUFFER="git commit -F $tmpfile"
     zle end-of-line # Move cursor to the end
+    set +x
 
 }
 
