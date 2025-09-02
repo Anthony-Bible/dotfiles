@@ -53,7 +53,6 @@ ai_commit_msg() {
 
 # ZLE widget for ai_commit_msg (menu-based file selection with "All" option)
 _ai_commit_msg_zsh() {
-set -x
     # Use local -a for arrays
     local -a files_array # Declare files_array as an array
     local files_string tmpfile msg changes added_files # files_string will hold the space-separated list initially
@@ -221,7 +220,6 @@ set -x
     # Set the buffer for the commit command
     BUFFER="git commit -F $tmpfile"
     zle end-of-line # Move cursor to the end
-    set +x
 
 }
 
