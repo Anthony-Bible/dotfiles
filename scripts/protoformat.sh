@@ -4,8 +4,8 @@ echoerr() {
 }
 
 
-if ! command -v golangci-lint &> /dev/null; then
-    echoerr "golangci-lint is not installed. Please install it first: https://golangci-lint.run/usage/install/"
+if ! command -v buf &> /dev/null; then
+    echoerr "buf is not installed. Please install it first: https://buf.build/docs/installation"
     exit 2
 fi
 
@@ -15,39 +15,39 @@ final_exit_code=0
 if [[ $# -gt 0 ]]; then
     # Process arguments directly
     for filepath in "$@"; do
-        # Only process .go files
-        if [[ "$filepath" != *.go ]]; then
+        # Only process .proto files
+        if [[ "$filepath" != *.proto ]]; then
             continue
         fi
-        
+
         echo "Formatting and checking file: $filepath"
         if [[ ! -f "$filepath" ]]; then
             echoerr "File not found: $filepath"
             exit 2
         fi
-        
-        # Format with gofumpt
-        echo "Running gofumpt on $filepath"
-        golangci-lint fmt "$filepath"
+
+        # Format with buf
+        echo "Running buf fmt on $filepath"
+        buf fmt -w "$filepath"
         format_exit_code=$?
-        
+
         if [[ $format_exit_code -ne 0 ]]; then
-            echoerr "gofumpt failed on $filepath"
+            echoerr "buf fmt failed on $filepath"
             final_exit_code=2
         else
-            echo "File formatted successfully with gofumpt"
+            echo "File formatted successfully with buf fmt"
         fi
-        
-        # Lint with golangci-lint
-        echo "Running golangci-lint on $filepath"
-        golangci_output=$(golangci-lint run --fix ./... 2>&1)
+
+        # Lint with buf
+        echo "Running buf lint on $filepath"
+        buf_output=$(buf lint "$filepath" 2>&1)
         lint_exit_code=$?
 
         if [[ $lint_exit_code -ne 0 ]]; then
-            echoerr "golangci-lint found issues, fix these one by one: $golangci_output" 
+            echoerr "buf lint found issues: $buf_output"
             final_exit_code=2
         else
-            echo "No golangci-lint issues found"
+            echo "No buf lint issues found"
         fi
     done
 else
@@ -58,9 +58,9 @@ else
         exit 2
     fi
     echo "Input received: $INPUT"
-    files_changed=$(echo "$INPUT" | jq -r '.tool_input.file_path | select(endswith(".go"))')
+    files_changed=$(echo "$INPUT" | jq -r '.tool_input.file_path | select(endswith(".proto"))')
     if [[ -z "$files_changed" ]]; then
-        echo "No .go files found in the input."
+        echo "No .proto files found in the input."
         exit 0
     fi
     for filepath in $files_changed; do
@@ -70,33 +70,33 @@ else
             echoerr "File not found: $filepath"
             exit 2
         fi
-        
-        # Format with gofumpt
-        echo "Running gofumpt on $filepath"
-        golangci-lint fmt ./...
+
+        # Format with buf
+        echo "Running buf fmt on $filepath"
+        buf fmt -w "$filepath"
         format_exit_code=$?
-        
+
         if [[ $format_exit_code -ne 0 ]]; then
-            echoerr "gofumpt failed on $filepath"
+            echoerr "buf fmt failed on $filepath"
             final_exit_code=2
         else
-            echo "File formatted successfully with gofumpt"
+            echo "File formatted successfully with buf fmt"
         fi
-        
-        # Lint with golangci-lint
-        echo "Running golangci-lint on $filepath"
-        golangci_output=$(golangci-lint run --fix ./... 2>&1)
+
+        # Lint with buf
+        echo "Running buf lint on $filepath"
+        buf_output=$(buf lint "$filepath" 2>&1)
         lint_exit_code=$?
         filepath_without_pwd=$(echo "$filepath" | sed "s|$(pwd)/||")
         if [[ $lint_exit_code -ne 0 ]]; then
-            filespecific=$(echo "$golangci_output" | grep "$filepath_without_pwd" || true)
+            filespecific=$(echo "$buf_output" | grep "$filepath_without_pwd" || true)
         fi
 
         if [[ -n $filespecific ]]; then
-            echoerr "golangci-lint found issues, fix these one by one, even if they're not related to your change as we like leaving the code better than we found it: $filespecific" 
+            echoerr "buf lint found issues in $filepath: $filespecific"
             final_exit_code=2
         else
-            echo "No golangci-lint issues found"
+            echo "No buf lint issues found"
         fi
     done
 fi
