@@ -30,6 +30,16 @@
           }
 
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|mcp__cerebras-mcp__write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$DOTFILESDIR/scripts/protoformat.sh"
+          }
+
+        ]
       }
     ]
   }
