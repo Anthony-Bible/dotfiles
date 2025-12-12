@@ -198,7 +198,7 @@ _ai_commit_msg_zsh() {
     fi
 
     # Build the prompt by piping instruction + diff file content via stdin
-    msg=$("$AI_CHAT" --model openai:gpt-5-mini -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks) for the following changes, added files (names only) $added_files:")
+    msg=$("$AI_CHAT" --model openai:gpt-5-mini -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks), if needed you can use multiple lines, the purpose is to provide enough information without being too verbose,  for the following changes,  added files (names only) $added_files:")
 
     # Remove the diff file after using it
     rm -f "$diff_file"
@@ -264,7 +264,19 @@ create-script() {
     ensure_node_20 # Ensure Node.js is at version 20.x.x before running the command
     claude -p "$*" \
         --append-system-prompt "You are a senior devops engineer and system administrator. Your goal is to create robust, secure, and maintainable scripts. When you write code, follow best practices, include comments for complex parts, and ensure the script is easy to understand and use. After writing the script, provide a brief explanation of what it does and how to use it. Create a file if neccessary" \
-        --allowedTools "Write,Edit,Read,MultiEdit"
+        --allowedTools "Write,Edit,Read,MultiEdit,mcp__cerebras-mcp__write"
 }
 
 alias edit-script="create-script"
+
+# Add to ~/.bashrc or ~/.zshrc
+synclaude() {
+  ANTHROPIC_BASE_URL=https://api.synthetic.new/anthropic \
+  ANTHROPIC_AUTH_TOKEN=${SYNTHETIC_API_KEY} \
+  ANTHROPIC_DEFAULT_OPUS_MODEL=hf:moonshotai/Kimi-K2-Thinking \
+  ANTHROPIC_DEFAULT_SONNET_MODEL=hf:zai-org/GLM-4.6 \
+  ANTHROPIC_DEFAULT_HAIKU_MODEL=hf:zai-org/GLM-4.6 \
+  CLAUDE_CODE_SUBAGENT_MODEL=hf:zai-org/GLM-4.6 \
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+  claude "$@"
+}
