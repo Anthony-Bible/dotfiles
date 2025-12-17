@@ -46,4 +46,41 @@ else
     echo -e "${RED}Warning: $CLAUDE_AGENTS_DIR not found, skipping Claude agents setup${NC}"
 fi
 
+# Setup global CLAUDE.md
+echo -e "${GREEN}Setting up global CLAUDE.md${NC}"
+CLAUDE_MD_DOTFILES="$DOTFILESDIR/.claude/CLAUDE.md.dotfiles"
+CLAUDE_MD_TARGET="$HOME/.claude/CLAUDE.md"
+
+if [[ -f "$CLAUDE_MD_DOTFILES" ]]; then
+    # Marker to identify managed section
+    MARKER_START="# === BEGIN DOTFILES MANAGED SECTION ==="
+    MARKER_END="# === END DOTFILES MANAGED SECTION ==="
+
+    if [[ -f "$CLAUDE_MD_TARGET" ]]; then
+        # Remove old managed section if it exists
+        if grep -q "$MARKER_START" "$CLAUDE_MD_TARGET"; then
+            echo -e "${YELLOW}Updating dotfiles-managed section in CLAUDE.md${NC}"
+            # Remove everything between markers (inclusive)
+            sed -i "/$MARKER_START/,/$MARKER_END/d" "$CLAUDE_MD_TARGET"
+        else
+            echo -e "${YELLOW}Appending dotfiles section to existing CLAUDE.md${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Creating new CLAUDE.md${NC}"
+        touch "$CLAUDE_MD_TARGET"
+    fi
+
+    # Append managed section
+    {
+        echo ""
+        echo "$MARKER_START"
+        cat "$CLAUDE_MD_DOTFILES"
+        echo "$MARKER_END"
+    } >> "$CLAUDE_MD_TARGET"
+
+    echo -e "${GREEN}CLAUDE.md updated at $CLAUDE_MD_TARGET${NC}"
+else
+    echo -e "${RED}Warning: $CLAUDE_MD_DOTFILES not found, skipping CLAUDE.md setup${NC}"
+fi
+
 echo -e "${GREEN}Claude configuration setup complete${NC}"
