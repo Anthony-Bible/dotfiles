@@ -258,7 +258,7 @@ fi
 
 # see if variable XDG_CONFIG_HOME is set
 echo -e "${GREEN}Stowing wezterm files${NC}"
-if [[ -z "$XDG_CONFIG_HOME" ]]; then
+if [[ -z "${XDG_CONFIG_HOME:-}" ]]; then
     echo -e "${YELLOW}XDG_CONFIG_HOME is not set, using $HOME/.config/wezterm for configuration store${NC}"
     mkdir -p "$HOME/.config/wezterm"
     stow -R -t "$HOME/.config/wezterm" wezterm
@@ -290,7 +290,7 @@ if [[ $SHELL =~ "zsh" ]]; then
         echo -e "${YELLOW}oh-my-zsh is not installed, won't install theme${NC}"
     else
         #check if variable ZSH_CUSTOM is set
-        if [[ -z "$ZSH_CUSTOM" ]]; then
+        if [[ -z "${ZSH_CUSTOM:-}" ]]; then
             echo -e "${YELLOW}ZSH_CUSTOM is not set, using $HOME/.oh-my-zsh/custom for custom themes${NC}"
             ZSH_CUSTOM="$HOME/.oh-my-zsh/custom"
         else
