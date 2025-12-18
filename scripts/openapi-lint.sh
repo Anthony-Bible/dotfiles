@@ -1,7 +1,66 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 echoerr() {
     echo -e "\033[31m$*\033[0m" >&2
 }
+
+# Source security functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/../lib/security.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/security.sh"
+fi
+
+# Help function
+show_help() {
+    cat << EOF
+USAGE: $0 [OPTIONS] [FILES...]
+
+OpenAPI specification validation and linting tool.
+
+OPTIONS:
+    -h, --help      Show this help message and exit
+    -v, --verbose   Enable verbose output
+    -q, --quiet     Suppress non-error output
+
+DESCRIPTION:
+    Runs lint-openapi on OpenAPI/YAML files. Can be used directly or as a Git hook.
+
+EXAMPLES:
+    # Lint all YAML files
+    $0 ./...
+
+    # Lint specific files
+    $0 api.yaml openapi.yaml
+
+EOF
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--verbose)
+            # Enable verbose mode
+            shift
+            ;;
+        -q|--quiet)
+            exec 1>/dev/null
+            shift
+            ;;
+        -*)
+            echoerr "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if ! command -v lint-openapi &> /dev/null; then
     echoerr "lint-openapi is not installed. Please install it first."

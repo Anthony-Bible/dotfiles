@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-#
+set -euo pipefail
+
 # This script handles Claude-specific configuration setup
+
+# Source security functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/lib/security.sh" ]]; then
+    source "$SCRIPT_DIR/lib/security.sh"
+fi
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'

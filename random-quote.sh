@@ -1,9 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 # random-quote.sh - Pick a random inspirational quote from quotes.json
 # Usage: ./random-quote.sh [path/to/quotes.json]
 
-set -euo pipefail
+# Source security functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/lib/security.sh" ]]; then
+    source "$SCRIPT_DIR/lib/security.sh"
+fi
 
 # Default quotes file path
 QUOTES_FILE="${1:-quotes.json}"

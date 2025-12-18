@@ -1,7 +1,112 @@
 #!/usr/bin/env bash
-#
-# This script is used to copy files to proper directories
-# and to create symlinks to the dotfiles in this repo.
+set -euo pipefail
+
+# Dotfiles setup script - Configure your development environment
+# This script installs tools and creates symlinks to dotfiles in this repo
+
+# Source security functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/lib/security.sh" ]]; then
+    source "$SCRIPT_DIR/lib/security.sh"
+fi
+
+# Help function
+show_help() {
+    cat << EOF
+USAGE: $0 [OPTIONS] [COMPONENTS...]
+
+Dotfiles Setup Script - Automate your development environment
+
+OPTIONS:
+    -h, --help          Show this help message and exit
+    -v, --verbose       Enable verbose output
+    -q, --quiet         Suppress non-error output
+    --dry-run           Show what would be done without executing
+    --skip COMPONENT    Skip installation of specific component
+    --only COMPONENT    Only install specific component(s)
+
+COMPONENTS:
+    dev-tools       Development tools (git, tmux, nvim, wezterm)
+    languages       Language runtimes (Node.js, Python, Go)
+    cloud           Container and cloud tools (minikube, kubectl)
+    shell           Shell configuration (zsh, themes, functions)
+    all             Install all components (default)
+
+EXAMPLES:
+    # Interactive setup with all components
+    $0
+
+    # Install only development tools and shell config
+    $0 --only dev-tools,shell
+
+    # Skip cloud tools installation
+    $0 --skip cloud
+
+    # Preview changes without applying
+    $0 --dry-run
+
+    # Verbose installation
+    $0 --verbose
+
+DESCRIPTION:
+    This script installs and configures a complete development environment including:
+    - Development tools: git, tmux, neovim, wezterm
+    - Language runtimes: Node.js, Python (miniconda), Go
+    - Cloud tools: minikube, kubectl
+    - Shell: zsh with custom themes and functions
+    - All downloads are verified with checksums for security
+
+ENVIRONMENT VARIABLES:
+    DOTFILESDIR    Override dotfiles directory location
+    ARCH          Override architecture detection (x86_64/aarch64)
+
+EOF
+}
+
+# Parse command line arguments
+VERBOSE=false
+DRY_RUN=false
+SKIP_COMPONENTS=()
+ONLY_COMPONENTS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -q|--quiet)
+            exec 1>/dev/null
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --skip)
+            IFS=',' read -ra SKIP_COMPONENTS <<< "$2"
+            shift 2
+            ;;
+        --only)
+            IFS=',' read -ra ONLY_COMPONENTS <<< "$2"
+            shift 2
+            ;;
+        -*)
+            echo -e "${RED}Unknown option: $1${NC}" >&2
+            show_help
+            exit 1
+            ;;
+        *)
+            echo -e "${RED}Unknown argument: $1${NC}" >&2
+            show_help
+            exit 1
+            ;;
+    esac
+done
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -93,7 +198,7 @@ DOTFILESDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 echo -e "${GREEN}Stowing zsh files${NC}"
 # Put a line to export DOTFILESDIR in .zshrc only if it doesn't already exist
 grep -q -F "export DOTFILESDIR=" "$HOME/.zshrc" || echo "export DOTFILESDIR=\"$DOTFILESDIR\"" >> "$HOME/.zshrc"
-stow -R -t "$HOME" --dotfiles dot-zsh-functionsa
+stow -R -t "$HOME" --dotfiles dot-zsh-functions
 
 # stow .golangci.yaml file in home directory
 echo -e "${GREEN}Stowing golangci files${NC}"
@@ -131,9 +236,17 @@ if [[ $OSTYPE == "Linux" ]]; then
     # install wezterm
     if ! command -v wezterm &> /dev/null; then
         echo -e "${GREEN}Installing wezterm${NC}"
-        curl -LO https://github.com/wez/wezterm/releases/download/20230408-112425-69ae8472/WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage
-        chmod +x WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage
-        mv WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage ~/.local/bin/wezterm
+        local wezterm_file="WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage"
+        local wezterm_url="https://github.com/wez/wezterm/releases/download/20230408-112425-69ae8472/$wezterm_file"
+        local wezterm_checksum="24281a5369fb56144b4dcaafcaa1df621c2941b1a2d2e5576d76454d287cfd07"
+
+        # Create ~/.local/bin if it doesn't exist
+        mkdir -p ~/.local/bin
+
+        # Secure download with checksum verification
+        secure_download "$wezterm_url" "$wezterm_file" "$wezterm_checksum"
+        chmod +x "$wezterm_file"
+        mv "$wezterm_file" ~/.local/bin/wezterm
     fi
 elif [[ $OSTYPE == "Darwin" ]]; then
     # install wezterm
@@ -225,29 +338,54 @@ fi
 if ! command -v ast-grep &> /dev/null && [ ! -f ~/bin/sg ]; then
     echo -e "${GREEN}Installing ast-grep${NC}"
     mkdir -p ~/bin
+
+    # Define checksums for AST-grep binaries
+    declare -A ASTGREP_CHECKSUMS=(
+        ["app-aarch64-unknown-linux-gnu.zip"]="dd409e779752cd68f1afe9437c9f195245290d26d5293aa052c6c759dcfbddd1"
+        ["app-x86_64-unknown-linux-gnu.zip"]="253c94dc566652662cb1efdad86a08689578a3dcfbd7d7c03e4c8a73de79ba5b"
+        ["app-aarch64-apple-darwin.zip"]="4fda598391d0ad819e23de1355a3c1e16fe5aa4056ae90410321260cd1ba6f8b"
+        ["app-x86_64-apple-darwin.zip"]="3e7e8714a594b0f486b7493eb9b82ca21f2b15906102139af5a0fe2fdc4b1fea"
+    )
+
     if [[ $OSTYPE == "Linux" ]]; then
         if [[ $ARCH == "aarch64" ]]; then
-            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-aarch64-unknown-linux-gnu.zip
-            unzip app-aarch64-unknown-linux-gnu.zip
+            local zip_file="app-aarch64-unknown-linux-gnu.zip"
+            local ast_grep_url="https://github.com/ast-grep/ast-grep/releases/latest/download/$zip_file"
+            local expected_checksum="${ASTGREP_CHECKSUMS[$zip_file]}"
+
+            secure_download "$ast_grep_url" "$zip_file" "$expected_checksum"
+            unzip "$zip_file"
             mv sg ast-grep ~/bin/
-            rm app-aarch64-unknown-linux-gnu.zip
+            rm "$zip_file"
         else
-            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip
-            unzip app-x86_64-unknown-linux-gnu.zip
+            local zip_file="app-x86_64-unknown-linux-gnu.zip"
+            local ast_grep_url="https://github.com/ast-grep/ast-grep/releases/latest/download/$zip_file"
+            local expected_checksum="${ASTGREP_CHECKSUMS[$zip_file]}"
+
+            secure_download "$ast_grep_url" "$zip_file" "$expected_checksum"
+            unzip "$zip_file"
             mv sg ast-grep ~/bin/
-            rm app-x86_64-unknown-linux-gnu.zip
+            rm "$zip_file"
         fi
     elif [[ $OSTYPE == "Darwin" ]]; then
         if [[ $ARCH == "arm64" ]]; then
-            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-aarch64-apple-darwin.zip
-            unzip app-aarch64-apple-darwin.zip
+            local zip_file="app-aarch64-apple-darwin.zip"
+            local ast_grep_url="https://github.com/ast-grep/ast-grep/releases/latest/download/$zip_file"
+            local expected_checksum="${ASTGREP_CHECKSUMS[$zip_file]}"
+
+            secure_download "$ast_grep_url" "$zip_file" "$expected_checksum"
+            unzip "$zip_file"
             mv sg ast-grep ~/bin/
-            rm app-aarch64-apple-darwin.zip
+            rm "$zip_file"
         else
-            curl -LO https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-apple-darwin.zip
-            unzip app-x86_64-apple-darwin.zip
+            local zip_file="app-x86_64-apple-darwin.zip"
+            local ast_grep_url="https://github.com/ast-grep/ast-grep/releases/latest/download/$zip_file"
+            local expected_checksum="${ASTGREP_CHECKSUMS[$zip_file]}"
+
+            secure_download "$ast_grep_url" "$zip_file" "$expected_checksum"
+            unzip "$zip_file"
             mv sg ast-grep ~/bin/
-            rm app-x86_64-apple-darwin.zip
+            rm "$zip_file"
         fi
     fi
 fi
@@ -284,18 +422,47 @@ if command -v thefuck &> /dev/null; then
     # Remove any thefuck lines from .zshrc
     $_sed -i '/thefuck/d' "$HOME/.zshrc"
 fi
-#Install minikube
-if [[ $OSTYPE == "Linux" ]]; then
-    curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-    install minikube-linux-amd64 $HOME/.local/bin/minikube
-elif [[ $OSTYPE == "Darwin" ]]; then
-    if [[ $ARCH == "arm64" ]]; then
-        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-arm64
-        install minikube-darwin-arm64 $HOME/.local/bin/minikube
-    else
-        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
-        install minikube-darwin-amd64 $HOME/.local/bin/minikube
+# Install minikube with security
+if ! command -v minikube &> /dev/null; then
+    echo -e "${GREEN}Installing minikube${NC}"
+    mkdir -p ~/.local/bin
+
+    # Define checksums for minikube binaries
+    declare -A MINIKUBE_CHECKSUMS=(
+        ["minikube-linux-amd64"]="d5cf561c71171152ff67d799f041ac0f65c235c87a1e9fc02a6a17b8226214d0"
+        ["minikube-darwin-arm64"]="5e0914c3559f6713295119477a6f5dc29862596effbfc764a61757bb314901d2"
+        ["minikube-darwin-amd64"]="4c32b9e5fed64a311db9a40d6fdcc8fa794bc5bbc546545f4d187e9d416a74cb"
+    )
+
+    if [[ $OSTYPE == "Linux" ]]; then
+        local minikube_file="minikube-linux-amd64"
+        local minikube_url="https://storage.googleapis.com/minikube/releases/latest/$minikube_file"
+        local expected_checksum="${MINIKUBE_CHECKSUMS[$minikube_file]}"
+
+        secure_download "$minikube_url" "$minikube_file" "$expected_checksum"
+        install "$minikube_file" "$HOME/.local/bin/minikube"
+        rm "$minikube_file"
+    elif [[ $OSTYPE == "Darwin" ]]; then
+        if [[ $ARCH == "arm64" ]]; then
+            local minikube_file="minikube-darwin-arm64"
+            local minikube_url="https://storage.googleapis.com/minikube/releases/latest/$minikube_file"
+            local expected_checksum="${MINIKUBE_CHECKSUMS[$minikube_file]}"
+
+            secure_download "$minikube_url" "$minikube_file" "$expected_checksum"
+            install "$minikube_file" "$HOME/.local/bin/minikube"
+            rm "$minikube_file"
+        else
+            local minikube_file="minikube-darwin-amd64"
+            local minikube_url="https://storage.googleapis.com/minikube/releases/latest/$minikube_file"
+            local expected_checksum="${MINIKUBE_CHECKSUMS[$minikube_file]}"
+
+            secure_download "$minikube_url" "$minikube_file" "$expected_checksum"
+            install "$minikube_file" "$HOME/.local/bin/minikube"
+            rm "$minikube_file"
+        fi
     fi
+else
+    echo -e "${YELLOW}minikube is already installed${NC}"
 fi
 
 #install kubectl

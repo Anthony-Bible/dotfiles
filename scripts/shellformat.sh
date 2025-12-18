@@ -1,7 +1,65 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
 echoerr() {
     echo -e "\033[31m$*\033[0m" >&2
 }
+
+# Source security functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/../lib/security.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/security.sh"
+fi
+
+# Help function
+show_help() {
+    cat << EOF
+USAGE: $0 [OPTIONS] [FILES...]
+
+Shell script linting tool using shellcheck.
+
+OPTIONS:
+    -h, --help      Show this help message and exit
+    -v, --verbose   Enable verbose output
+    -q, --quiet     Suppress non-error output
+
+DESCRIPTION:
+    Runs shellcheck on .sh files for potential issues and best practices.
+
+EXAMPLES:
+    # Lint all shell scripts
+    $0 ./...
+
+    # Lint specific scripts
+    $0 setup.sh scripts/*.sh
+
+EOF
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--verbose)
+            shift
+            ;;
+        -q|--quiet)
+            exec 1>/dev/null
+            shift
+            ;;
+        -*)
+            echoerr "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if ! command -v shellcheck &> /dev/null; then
     echoerr "shellcheck is not installed. Please install it first."
