@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echoerr() {
-    echo -e "\033[31m$*\033[0m" >&2
-}
-
-# Source security functions
+# Source common utilities
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$SCRIPT_DIR/../lib/security.sh" ]]; then
-    source "$SCRIPT_DIR/../lib/security.sh"
-fi
+source "$SCRIPT_DIR/format-common.sh"
 
 # Help function
 show_help() {
@@ -24,7 +18,7 @@ OPTIONS:
     -q, --quiet     Suppress non-error output
 
 DESCRIPTION:
-    Runs lint-openapi on OpenAPI/YAML files. Can be used directly or as a Git hook.
+    Runs lint-openapi on OpenAPI/YAML files. Automatically detects OpenAPI specs.
 
 EXAMPLES:
     # Lint all YAML files
@@ -36,109 +30,27 @@ EXAMPLES:
 EOF
 }
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -v|--verbose)
-            # Enable verbose mode
-            shift
-            ;;
-        -q|--quiet)
-            exec 1>/dev/null
-            shift
-            ;;
-        -*)
-            echoerr "Unknown option: $1"
-            show_help
-            exit 1
-            ;;
-        *)
-            break
-            ;;
-    esac
-done
+# Tool-specific processing with OpenAPI detection
+process_openapi_files() {
+    local filepath="$1"
 
-if ! command -v lint-openapi &> /dev/null; then
-    echoerr "lint-openapi is not installed. Please install it first."
-    exit 2
-fi
-
-final_exit_code=0
-
-# Check if arguments are provided (direct command usage)
-if [[ $# -gt 0 ]]; then
-    # Process arguments directly
-    for filepath in "$@"; do
-        # Only process .yaml and .yml files
-        if [[ "$filepath" != *.yaml && "$filepath" != *.yml ]]; then
-            continue
+    # Check if it's an OpenAPI file
+    if ! check_openapi_file "$filepath"; then
+        if [[ "$VERBOSE" == "true" ]]; then
+            echoinfo "Skipping $filepath (not an OpenAPI file)"
         fi
-        
-        # Check if it's an OpenAPI file by looking for openapi/swagger field
-        if ! (grep -q "openapi:" "$filepath" || grep -q "swagger:" "$filepath"); then
-            echo "Skipping $filepath (not an OpenAPI file)"
-            continue
-        fi
-        
-        echo "Checking file: $filepath"
-        if [[ ! -f "$filepath" ]]; then
-            echoerr "File not found: $filepath"
-            exit 2
-        fi
-        
-        lint_output=$(lint-openapi "$filepath" 2>&1)
-        exit_code=$?
-
-        if [[ $exit_code -ne 0 ]]; then
-            echoerr "OpenAPI spec has lint errors, fix these one by one: $lint_output" 
-            final_exit_code=2
-        else
-            echo "No lint-openapi problems found"
-        fi
-    done
-else
-    # Read from stdin and parse JSON (hook usage)
-    INPUT=$(cat )
-    if [[ -z "$INPUT" ]]; then
-        echoerr "No input provided. Please provide a JSON input."
-        exit 2
+        return 0
     fi
-    echo "Input received: $INPUT"
-    files_changed=$(echo "$INPUT" | jq -r '.tool_input.file_path | select(endswith(".yaml") or endswith(".yml"))')
-    if [[ -z "$files_changed" ]]; then
-        echo "No .yaml/.yml files found in the input."
-        exit 0
-    fi
-    for filepath in $files_changed; do
-        # Check if it's an OpenAPI file by looking for openapi/swagger field
-        if ! (grep -q "openapi:" "$filepath" || grep -q "swagger:" "$filepath"); then
-            echo "Skipping $filepath (not an OpenAPI file)"
-            continue
-        fi
 
-        echo "Checking file: $filepath"
-        if [[ ! -f "$filepath" ]]; then
-            echoerr "File not found: $filepath"
-            exit 2
-        fi
-        lint_output=$(lint-openapi "$filepath" 2>&1)
-        exit_code=$?
+    run_tool "lint-openapi" "lint-openapi" "lint-openapi" "$filepath"
+}
 
-        if [[ $exit_code -ne 0 ]]; then
-            echoerr "OpenAPI spec has lint errors, fix these one by one: $lint_output" 
-            final_exit_code=2
-        else
-            echo "No lint-openapi problems found"
-        fi
-    done
-fi
+# Main execution
+parse_common_args "$@"
+[[ "$HELP_REQUESTED" == "true" ]] && { show_help; exit 0; }
 
-if [[ $final_exit_code -eq 0 ]]; then
-    echo "All files passed lint-openapi."
-fi
+# Process files (supports both .yaml and .yml)
+process_hook_input "lint-openapi" ".yaml,.yml" "process_openapi_files" "$@"
 
-exit $final_exit_code
+# Finalize
+finalize_format_script "OpenAPI linting"
