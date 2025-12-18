@@ -101,7 +101,8 @@ _ai_commit_msg_zsh() {
     # Use fzf or prompt for file selection
     if command -v fzf >/dev/null 2>&1; then
         local fzf_input_string
-        fzf_input_string="All files (select this to include all listed files)\n$fzf_display_list"
+        # Add "All staged files" option before "All files"
+        fzf_input_string="All staged files only (S*)\nAll files (select this to include all listed files)\n$fzf_display_list"
         
         files_string=$(echo -e "$fzf_input_string" | fzf -m --prompt="Select files for commit (S:Staged M:Modified U:Untracked D:Deleted): " --header="TAB to select, ENTER to confirm")
         
@@ -114,14 +115,26 @@ _ai_commit_msg_zsh() {
 
         local selected_lines_array=("${(@f)files_string}") # Split selection into an array of lines
         local use_all_files=0
+        local use_all_staged=0
         for selected_item in "${selected_lines_array[@]}"; do
-            if [[ "$selected_item" == "All files (select this to include all listed files)" ]]; then
+            if [[ "$selected_item" == "All staged files only (S*)" ]]; then
+                use_all_staged=1
+                break
+            elif [[ "$selected_item" == "All files (select this to include all listed files)" ]]; then
                 use_all_files=1
                 break
             fi
         done
 
-        if [[ $use_all_files -eq 1 ]]; then
+        if [[ $use_all_staged -eq 1 ]]; then
+            if [[ -z "$staged_files" ]]; then
+                BUFFER=""
+                zle -I && zle redisplay
+                zle -M "No staged files to commit."
+                return 1
+            fi
+            files_array=("${(@f)staged_files}")
+        elif [[ $use_all_files -eq 1 ]]; then
             if [[ -z "$all_candidate_files_combined" ]]; then # Should be caught by earlier empty check
                 BUFFER=""
                 zle -I && zle redisplay
@@ -181,6 +194,7 @@ _ai_commit_msg_zsh() {
     # Run git diff from the repository root and write to the diff file
     git -C "$repo_root" diff --cached -- "${files_array[@]}" > "$diff_file"
     added_files=$(git -C "$repo_root" diff --cached --name-only --diff-filter=A -- "${files_array[@]}") # Ensure diff is also scoped
+    deleted_files=$(git -C "$repo_root" diff --cached --name-only --diff-filter=D -- "${files_array[@]}") # Capture deleted files
 
     # Check if changes are empty *before* calling AI
     if [[ ! -s "$diff_file" && -z "$added_files" ]]; then
@@ -198,7 +212,11 @@ _ai_commit_msg_zsh() {
     fi
 
     # Build the prompt by piping instruction + diff file content via stdin
-    msg=$("$AI_CHAT" --model openai:gpt-5-mini -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks), if needed you can use multiple lines, the purpose is to provide enough information without being too verbose,  for the following changes,  added files (names only) $added_files:")
+    local deleted_files_section=""
+    if [[ -n "$deleted_files" ]]; then
+        deleted_files_section="deleted files (names only): $deleted_files"
+    fi
+    msg=$("$AI_CHAT" --model openai:gpt-5-mini -f "$diff_file" "Generate a short, concise and accurate commit message (using conventional commits format, plain text only, no markdown ticks), if needed you can use multiple lines, the purpose is to provide enough information without being too verbose, for the following changes, added files (names only): $added_files, $deleted_files_section")
 
     # Remove the diff file after using it
     rm -f "$diff_file"
