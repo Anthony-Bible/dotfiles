@@ -59,9 +59,9 @@ main() {
         print_success "Setup completed successfully!"
 
         # Run Claude configuration if it exists
-        if [[ -f "$SETUP_DIR/setup-claude.sh" ]]; then
+        if [[ -f "$SETUP_ROOT/setup-claude.sh" ]]; then
             print_status "Running Claude configuration setup"
-            bash "$SETUP_DIR/setup-claude.sh"
+            bash "$SETUP_ROOT/setup-claude.sh"
         else
             print_status "Note: setup-claude.sh not found, skipping Claude configuration"
         fi
@@ -74,10 +74,6 @@ main() {
 # Show available components if requested
 if [[ "${1:-}" == "--list-components" ]]; then
     # Initialize components first
-    export SETUP_SCRIPT_DIR SETUP_ROOT
-    source "$SETUP_SCRIPT_DIR/core/init.sh"
-    source "$SETUP_SCRIPT_DIR/core/utils.sh"
-    source "$SETUP_SCRIPT_DIR/lib/component-api.sh"
     auto_register_components
     echo "Available components:"
     list_components

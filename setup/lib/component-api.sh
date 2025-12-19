@@ -21,7 +21,13 @@ register_component() {
 
 # List all registered components
 list_components() {
-    for name in "${!COMPONENTS[@]}"; do
+    local name
+    local -a sorted_names
+
+    # Collect and sort component names for deterministic output
+    mapfile -t sorted_names < <(printf '%s\n' "${!COMPONENTS[@]}" | sort)
+
+    for name in "${sorted_names[@]}"; do
         echo "  $name - ${COMPONENT_DESCRIPTIONS[$name]}"
     done
 }
@@ -185,7 +191,7 @@ auto_register_components() {
         for component_dir in "$components_dir"/*; do
             if [[ -d "$component_dir" && -f "$component_dir/main.sh" ]]; then
                 local component_name=$(basename "$component_dir")
-                register_component "$component_name" "$component_dir/main.sh" "Component: $component_name"
+                register_component "$component_name" "$component_dir/main.sh" "Environment setup component '$component_name' (auto-registered from $component_dir)"
             fi
         done
     fi

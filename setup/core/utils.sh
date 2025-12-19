@@ -152,9 +152,9 @@ init_common() {
     verbose "Initializing common setup utilities"
 
     # Set global variables for components to use
-    OSTYPE=$(detect_os)
+    OS_TYPE=$(detect_os)
     ARCH=$(detect_arch)
-    export OSTYPE ARCH
+    export OS_TYPE ARCH
 
     # Setup sed command
     _sed=$(setup_sed)

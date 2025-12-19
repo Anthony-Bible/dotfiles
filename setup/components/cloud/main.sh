@@ -22,11 +22,11 @@ install_minikube() {
         local minikube_url
         local expected_checksum
 
-        if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $OS_TYPE == "Linux" ]]; then
             minikube_file="minikube-linux-amd64"
             minikube_url="https://storage.googleapis.com/minikube/releases/latest/$minikube_file"
             expected_checksum="${MINIKUBE_CHECKSUMS[$minikube_file]}"
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             if [[ $ARCH == "arm64" ]]; then
                 minikube_file="minikube-darwin-arm64"
             else
@@ -49,15 +49,49 @@ install_kubectl() {
     if ! command -v kubectl &> /dev/null; then
         print_status "Installing kubectl"
 
-        if [[ $OSTYPE == "Linux" ]]; then
-            execute curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-            execute sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        # Determine latest stable kubectl version
+        local kubectl_version
+        kubectl_version="$(curl -L -s https://dl.k8s.io/release/stable.txt)"
+        if [[ -z "$kubectl_version" ]]; then
+            print_error "Failed to determine latest kubectl version"
+            return 1
+        fi
+
+        local kubectl_url
+        local kubectl_checksum_url
+        local kubectl_checksum
+
+        if [[ $OS_TYPE == "Linux" ]]; then
+            kubectl_url="https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
+            kubectl_checksum_url="https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl.sha256"
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             if [[ $ARCH == "arm64" ]]; then
-                execute curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/arm64/kubectl"
+                kubectl_url="https://dl.k8s.io/release/${kubectl_version}/bin/darwin/arm64/kubectl"
+                kubectl_checksum_url="https://dl.k8s.io/release/${kubectl_version}/bin/darwin/arm64/kubectl.sha256"
             else
-                execute curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/amd64/kubectl"
+                kubectl_url="https://dl.k8s.io/release/${kubectl_version}/bin/darwin/amd64/kubectl"
+                kubectl_checksum_url="https://dl.k8s.io/release/${kubectl_version}/bin/darwin/amd64/kubectl.sha256"
             fi
+        fi
+
+        if [[ -z "$kubectl_url" || -z "$kubectl_checksum_url" ]]; then
+            print_error "Unsupported OS or architecture for kubectl installation"
+            return 1
+        fi
+
+        # Fetch checksum for kubectl binary
+        kubectl_checksum="$(curl -L -s "$kubectl_checksum_url")"
+        if [[ -z "$kubectl_checksum" ]]; then
+            print_error "Failed to download kubectl checksum from $kubectl_checksum_url"
+            return 1
+        fi
+
+        # Download kubectl with checksum verification
+        secure_download "$kubectl_url" "kubectl" "$kubectl_checksum"
+
+        if [[ $OS_TYPE == "Linux" ]]; then
+            execute sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             execute chmod +x ./kubectl
             execute sudo mv ./kubectl /usr/local/bin/kubectl
         fi

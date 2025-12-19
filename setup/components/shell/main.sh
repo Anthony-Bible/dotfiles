@@ -33,14 +33,32 @@ configure_zsh() {
             cd "$SETUP_ROOT" || exit 1
             execute stow -R --dotfiles -t "$ZSH_CUSTOM" dot-oh-my-zsh
 
-            # Get file name in dot-oh-my-zsh/themes
+            # Get theme file name in dot-oh-my-zsh/themes
             local theme_file
-            theme_file=$(ls -1 "$SETUP_ROOT/dot-oh-my-zsh/themes")
-            # Remove .zsh-theme extension
-            theme_file=${theme_file%.zsh-theme}
+            local theme_files=("$SETUP_ROOT/dot-oh-my-zsh/themes"/*.zsh-theme)
+
+            # Handle cases where there are zero, one, or multiple theme files
+            if [[ ! -e "${theme_files[0]}" ]]; then
+                print_status "No .zsh-theme files found in $SETUP_ROOT/dot-oh-my-zsh/themes; leaving ZSH_THEME unchanged"
+                theme_file=""
+            elif (( ${#theme_files[@]} > 1 )); then
+                print_status "Multiple .zsh-theme files found in $SETUP_ROOT/dot-oh-my-zsh/themes; using ${theme_files[0]}"
+                theme_file=$(basename "${theme_files[0]}")
+                theme_file=${theme_file%.zsh-theme}
+            else
+                theme_file=$(basename "${theme_files[0]}")
+                # Remove .zsh-theme extension
+                theme_file=${theme_file%.zsh-theme}
+            fi
 
             # Change variable ZSH_THEME to theme name in .zshrc
-            $_sed -i "s/ZSH_THEME=.*/ZSH_THEME=\"$theme_file\"/" "$HOME/.zshrc"
+            if [[ -n "$theme_file" ]]; then
+                if [[ -n "${_sed:-}" ]]; then
+                    "$_sed" -i "s/ZSH_THEME=.*/ZSH_THEME=\"$theme_file\"/" "$HOME/.zshrc"
+                else
+                    sed -i "s/ZSH_THEME=.*/ZSH_THEME=\"$theme_file\"/" "$HOME/.zshrc"
+                fi
+            fi
         fi
     fi
 }
@@ -64,31 +82,33 @@ setup_shell_functions() {
 # Install nix package manager
 install_nix() {
     if ! command -v nix > /dev/null; then
-        execute curl -L https://nixos.org/nix/install
-
         # Interactive confirmation for nix installation
-        while true; do
-            echo "Do you want to continue? (y/n)"
-            read -n 1 -r input
-            echo # Move to a new line
+        if [ "$DRY_RUN" = "true" ]; then
+            print_status "DRY_RUN is enabled; skipping interactive nix installation prompt"
+        else
+            while true; do
+                echo "Do you want to continue? (y/n)"
+                read -n 1 -r input
+                echo # Move to a new line
 
-            # Convert to lowercase
-            input=${input,,}
+                # Convert to lowercase
+                input=${input,,}
 
-            case $input in
-                y)
-                    echo "Continuing..."
-                    break # Exit the loop
-                    ;;
-                n)
-                    echo "Not continuing. Skipping nix installation..."
-                    return 0
-                    ;;
-                *)
-                    echo "Invalid input. Please enter 'y' or 'n'."
-                    ;;
-            esac
-        done
+                case $input in
+                    y)
+                        echo "Continuing..."
+                        break # Exit the loop
+                        ;;
+                    n)
+                        echo "Not continuing. Skipping nix installation..."
+                        return 0
+                        ;;
+                    *)
+                        echo "Invalid input. Please enter 'y' or 'n'."
+                        ;;
+                esac
+            done
+        fi
 
         execute sh <(curl -L https://nixos.org/nix/install) --daemon
     fi

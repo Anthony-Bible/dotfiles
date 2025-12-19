@@ -9,9 +9,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../core/utils.sh"
 install_go() {
     if ! command -v go &> /dev/null; then
         print_status "Installing golang"
-        if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $OS_TYPE == "Linux" ]]; then
             execute sudo apt install golang
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             execute brew install golang
         fi
     fi
@@ -19,10 +19,12 @@ install_go() {
     # Install all go packages from file
     if [[ -f "$SETUP_ROOT/go-packages.txt" ]]; then
         print_status "Installing go packages"
-        for go_package in $(cat "$SETUP_ROOT/go-packages.txt"); do
+        while IFS= read -r go_package; do
+            # Skip empty or whitespace-only lines
+            [[ -z "$go_package" ]] && continue
             print_status "Installing $go_package"
             execute go install "$go_package"
-        done
+        done < "$SETUP_ROOT/go-packages.txt"
     fi
 
     # Install gofumpt
@@ -36,9 +38,9 @@ install_go() {
 install_golangci_lint() {
     if ! command -v golangci-lint &> /dev/null; then
         print_status "Installing golangci-lint"
-        if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $OS_TYPE == "Linux" ]]; then
             execute curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.3.1
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             execute brew install golangci-lint
         fi
     else
@@ -52,12 +54,12 @@ install_miniconda() {
         print_status "Installing Miniconda"
         local miniconda_script
 
-        if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $OS_TYPE == "Linux" ]]; then
             miniconda_script=Miniconda3-latest-Linux-x86_64.sh
             if [[ $ARCH == "aarch64" ]]; then
                 miniconda_script=Miniconda3-latest-Linux-aarch64.sh
             fi
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             if [[ $ARCH == "arm64" ]]; then
                 miniconda_script=Miniconda3-latest-MacOSX-arm64.sh
             else

@@ -26,7 +26,7 @@ install_tmux() {
 
 install_wezterm() {
     if ! command_exists wezterm; then
-        if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $OS_TYPE == "Linux" ]]; then
             print_status "Installing wezterm"
             local wezterm_file="WezTerm-20230408-112425-69ae8472-Ubuntu20.04.AppImage"
             local wezterm_url="https://github.com/wez/wezterm/releases/download/20230408-112425-69ae8472/$wezterm_file"
@@ -38,7 +38,7 @@ install_wezterm() {
             secure_download "$wezterm_url" "$wezterm_file" "$wezterm_checksum"
             execute chmod +x "$wezterm_file"
             execute mv "$wezterm_file" ~/.local/bin/wezterm
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             print_status "Installing wezterm"
             execute brew install --cask wezterm
         fi
@@ -62,10 +62,10 @@ stow_wezterm_config() {
 
 install_aichat() {
     if ! command_exists aichat; then
-        if [[ $OSTYPE == "Darwin" ]]; then
+        if [[ $OS_TYPE == "Darwin" ]]; then
             print_status "Installing aichat with brew"
             execute brew install aichat
-        elif [[ $OSTYPE == "Linux" ]]; then
+        elif [[ $OS_TYPE == "Linux" ]]; then
             print_status "You can get aichat from https://github.com/sigoden/aichat?tab=readme-ov-file"
         fi
     fi
@@ -88,13 +88,13 @@ install_ast_grep() {
         local ast_grep_url
         local expected_checksum
 
-        if [[ $OSTYPE == "Linux" ]]; then
+        if [[ $OS_TYPE == "Linux" ]]; then
             if [[ $ARCH == "aarch64" ]]; then
                 zip_file="app-aarch64-unknown-linux-gnu.zip"
             else
                 zip_file="app-x86_64-unknown-linux-gnu.zip"
             fi
-        elif [[ $OSTYPE == "Darwin" ]]; then
+        elif [[ $OS_TYPE == "Darwin" ]]; then
             if [[ $ARCH == "arm64" ]]; then
                 zip_file="app-aarch64-apple-darwin.zip"
             else

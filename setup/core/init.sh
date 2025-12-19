@@ -17,6 +17,7 @@ NC='\033[0m' # No Color
 
 # Global variables
 VERBOSE=false
+QUIET=false
 DRY_RUN=false
 SKIP_COMPONENTS=()
 ONLY_COMPONENTS=()
@@ -92,7 +93,7 @@ parse_args() {
                 shift
                 ;;
             -q|--quiet)
-                exec 1>/dev/null
+                QUIET=true
                 shift
                 ;;
             --dry-run)
@@ -147,13 +148,17 @@ should_run_component() {
 
 # Print status messages
 print_status() {
-    local message="$1"
-    echo -e "${YELLOW}${message}${NC}"
+    if [[ "$QUIET" != "true" ]]; then
+        local message="$1"
+        echo -e "${YELLOW}${message}${NC}"
+    fi
 }
 
 print_success() {
-    local message="$1"
-    echo -e "${GREEN}${message}${NC}"
+    if [[ "$QUIET" != "true" ]]; then
+        local message="$1"
+        echo -e "${GREEN}${message}${NC}"
+    fi
 }
 
 print_error() {
