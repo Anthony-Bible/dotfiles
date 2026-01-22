@@ -45,13 +45,17 @@ EOF
 # Tool-specific processing
 process_go_files() {
     local filepath="$1"
+    local pkg_dir
+    pkg_dir=$(dirname "$filepath")
 
     # Format with gofumpt (note: uses golangci-lint fmt command)
-    run_tool "golangci-lint" "golangci-lint" "golangci-lint fmt" "$filepath" || return 2
+    # Run on package directory for consistency with linting
+    run_tool "golangci-lint" "golangci-lint" "golangci-lint fmt" "$pkg_dir" || return 2
 
     # Lint with output filtering
+    # Run on package directory so cross-file type references resolve correctly
     local output
-    output=$(golangci-lint run --fix "$filepath" 2>&1 || true)
+    output=$(golangci-lint run --fix "$pkg_dir" 2>&1 || true)
     if [[ -n "$output" ]]; then
         local file_specific
         file_specific=$(filter_output_by_file "$output" "$filepath")
