@@ -14,6 +14,17 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
+# Use gsed on macOS (BSD sed has incompatible -i behavior)
+if [[ "$(uname)" == "Darwin" ]]; then
+    SED="gsed"
+    if ! command -v gsed &>/dev/null; then
+        echo -e "${RED}Error: gsed not found. Install it with: brew install gnu-sed${NC}"
+        exit 1
+    fi
+else
+    SED="sed"
+fi
+
 #Get current directory
 DOTFILESDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -69,7 +80,7 @@ if [[ -f "$CLAUDE_MD_DOTFILES" ]]; then
         if grep -q "$MARKER_START" "$CLAUDE_MD_TARGET"; then
             echo -e "${YELLOW}Updating dotfiles-managed section in CLAUDE.md${NC}"
             # Remove everything between markers (inclusive)
-            sed -i "/$MARKER_START/,/$MARKER_END/d" "$CLAUDE_MD_TARGET"
+            "$SED" -i "/$MARKER_START/,/$MARKER_END/d" "$CLAUDE_MD_TARGET"
         else
             echo -e "${YELLOW}Appending dotfiles section to existing CLAUDE.md${NC}"
         fi
