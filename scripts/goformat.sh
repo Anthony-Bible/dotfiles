@@ -53,9 +53,9 @@ process_go_files() {
     run_tool "golangci-lint" "golangci-lint" "golangci-lint fmt" "$pkg_dir" || return 2
 
     # Lint with output filtering
-    # Run on package directory so cross-file type references resolve correctly
+    # Use ./... to avoid type errors when running on a single file
     local output
-    output=$(golangci-lint run --fix "$pkg_dir" 2>&1 || true)
+    output=$(golangci-lint run --fix ./... 2>&1 || true)
     if [[ -n "$output" ]]; then
         local file_specific
         file_specific=$(filter_output_by_file "$output" "$filepath")
