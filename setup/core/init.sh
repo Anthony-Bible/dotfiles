@@ -161,6 +161,13 @@ print_success() {
     fi
 }
 
+print_warning() {
+    if [[ "$QUIET" != "true" ]]; then
+        local message="$1"
+        echo -e "${YELLOW}Warning: ${message}${NC}"
+    fi
+}
+
 print_error() {
     local message="$1"
     echo -e "${RED}${message}${NC}" >&2

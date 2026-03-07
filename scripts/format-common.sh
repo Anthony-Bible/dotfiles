@@ -6,9 +6,9 @@ set -euo pipefail
 # COLOR OUTPUT FUNCTIONS
 # =============================================================================
 echoerr() { echo -e "\033[31m$*\033[0m" >&2; }
-echosuccess() { echo -e "\033[32m$*\033[0m"; }
-echowarn() { echo -e "\033[33m$*\033[0m"; }
-echoinfo() { echo -e "\033[34m$*\033[0m"; }
+echosuccess() { echo -e "\033[32m$*\033[0m" >&2; }
+echowarn() { echo -e "\033[33m$*\033[0m" >&2; }
+echoinfo() { echo -e "\033[34m$*\033[0m" >&2; }
 
 # =============================================================================
 # GLOBAL VARIABLES (managed by common functions)

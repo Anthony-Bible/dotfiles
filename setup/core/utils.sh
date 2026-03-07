@@ -217,3 +217,56 @@ verify_checksum() {
         return 1
     fi
 }
+
+# Update a managed section in a file between markers
+update_managed_section() {
+    local target_file="$1"
+    local content_file="$2"
+    local marker_start="${3:-"# === BEGIN DOTFILES MANAGED SECTION ==="}"
+    local marker_end="${4:-"# === END DOTFILES MANAGED SECTION ==="}"
+    local sed_cmd
+    sed_cmd=$(setup_sed)
+
+    if [[ ! -f "$content_file" ]]; then
+        print_error "Content file $content_file not found"
+        return 1
+    fi
+
+    if [[ -f "$target_file" ]]; then
+        if grep -q "$marker_start" "$target_file"; then
+            verbose "Updating managed section in $target_file"
+            # Remove existing section
+            $sed_cmd -i "/$marker_start/,/$marker_end/d" "$target_file"
+        else
+            verbose "Appending managed section to $target_file"
+        fi
+    else
+        verbose "Creating new file $target_file"
+        touch "$target_file"
+    fi
+
+    # Append new section
+    {
+        echo ""
+        echo "$marker_start"
+        cat "$content_file"
+        echo "$marker_end"
+    } >> "$target_file"
+
+    print_status "Updated $target_file with managed section from $(basename "$content_file")"
+}
+
+# Copy agent files to a target directory
+copy_agent_files() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local name="$3"
+
+    if [[ -d "$source_dir" ]]; then
+        mkdir -p "$target_dir"
+        print_status "Copying $name agents to $target_dir"
+        cp -r "$source_dir"/* "$target_dir/"
+    else
+        print_warning "Source agents directory $source_dir not found, skipping $name setup"
+    fi
+}
