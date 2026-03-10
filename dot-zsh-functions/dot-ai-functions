@@ -289,12 +289,16 @@ alias edit-script="create-script"
 
 # Add to ~/.bashrc or ~/.zshrc
 synclaude() {
-  ANTHROPIC_BASE_URL=https://api.synthetic.new/anthropic \
+  #ANTHROPIC_BASE_URL=${SYNTHETIC_BASE_URL:-http://localhost:8080/anthropic} \
+  ANTHROPIC_BASE_URL="https://api.synthetic.new/anthropic" \
   ANTHROPIC_AUTH_TOKEN=${SYNTHETIC_API_KEY} \
-  ANTHROPIC_DEFAULT_OPUS_MODEL=hf:moonshotai/Kimi-K2-Thinking \
-  ANTHROPIC_DEFAULT_SONNET_MODEL=hf:zai-org/GLM-4.6 \
-  ANTHROPIC_DEFAULT_HAIKU_MODEL=hf:zai-org/GLM-4.6 \
-  CLAUDE_CODE_SUBAGENT_MODEL=hf:zai-org/GLM-4.6 \
+  ANTHROPIC_DEFAULT_OPUS_MODEL=hf:moonshotai/Kimi-K2.5 \
+  ANTHROPIC_DEFAULT_SONNET_MODEL=hf:zai-org/GLM-4.7 \
+  ANTHROPIC_DEFAULT_HAIKU_MODEL=hf:MiniMaxAI/MiniMax-M2.5 \
+  CLAUDE_CODE_SUBAGENT_MODEL=hf:zai-org/GLM-4.7 \
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
   claude "$@"
+#  CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1 \
+#  MAX_THINKING_TOKENS=31999 \
+#  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1 \
 }

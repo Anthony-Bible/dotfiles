@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Source setup utilities
 DOTFILESDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SETUP_ROOT="$DOTFILESDIR"
+export SETUP_ROOT="$DOTFILESDIR"
 source "$DOTFILESDIR/setup/core/utils.sh"
 
 # Colors are already defined in init.sh (sourced by utils.sh)
@@ -62,6 +62,22 @@ fi
 CLAUDE_AGENTS_DIR="$DOTFILESDIR/.claude/agents"
 copy_agent_files "$CLAUDE_AGENTS_DIR" "$HOME/.claude/agents" "Claude"
 copy_agent_files "$CLAUDE_AGENTS_DIR" "$HOME/.gemini/agents" "Gemini"
+
+# Transform Gemini agents to remove color:, model:, quote descriptions, and add max_turns
+GEMINI_AGENTS_DIR="$HOME/.gemini/agents"
+if [[ -d "$GEMINI_AGENTS_DIR" ]]; then
+    print_status "Transforming Gemini agents"
+    find "$GEMINI_AGENTS_DIR" -name "*.md" -type f | while read -r agent_file; do
+        # Remove color: line
+        sed -i '/^color:/d' "$agent_file"
+        # Remove model: line
+        sed -i '/^model:/d' "$agent_file"
+        # Quote description: value if not already quoted
+        sed -i 's|^description: \([^"].*\)$|description: "\1"|' "$agent_file"
+        # Add max_turns: 30 to frontmatter after description line
+        sed -i '/^description:/a\max_turns: 30' "$agent_file"
+    done
+fi
 
 # Setup global CLAUDE.md and gemini.md
 CLAUDE_MD_DOTFILES="$DOTFILESDIR/.claude/CLAUDE.md.dotfiles"
