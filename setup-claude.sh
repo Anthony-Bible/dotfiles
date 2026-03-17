@@ -67,15 +67,21 @@ copy_agent_files "$CLAUDE_AGENTS_DIR" "$HOME/.gemini/agents" "Gemini"
 GEMINI_AGENTS_DIR="$HOME/.gemini/agents"
 if [[ -d "$GEMINI_AGENTS_DIR" ]]; then
     print_status "Transforming Gemini agents"
+    # Use gsed on macOS for GNU sed compatibility
+    SED="sed"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        SED="gsed"
+    fi
+
     find "$GEMINI_AGENTS_DIR" -name "*.md" -type f | while read -r agent_file; do
         # Remove color: line
-        sed -i '/^color:/d' "$agent_file"
+        "$SED" -i '/^color:/d' "$agent_file"
         # Remove model: line
-        sed -i '/^model:/d' "$agent_file"
+        "$SED" -i '/^model:/d' "$agent_file"
         # Quote description: value if not already quoted
-        sed -i 's|^description: \([^"].*\)$|description: "\1"|' "$agent_file"
+        "$SED" -i 's|^description: \([^"].*\)$|description: "\1"|' "$agent_file"
         # Add max_turns: 30 to frontmatter after description line
-        sed -i '/^description:/a\max_turns: 30' "$agent_file"
+        "$SED" -i '/^description:/a\max_turns: 30' "$agent_file"
     done
 fi
 
