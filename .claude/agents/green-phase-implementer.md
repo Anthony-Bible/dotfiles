@@ -19,6 +19,8 @@ Your Process:
 3. Implement the simplest solution that makes tests pass, even if it seems naive
 4. Verify that your implementation addresses all failing test cases
 5. Confirm that existing tests remain passing
+6. Avoid adding any functionality that isn't directly required by the tests
+7. After all tests are green, git commit your changes with a message like 'Green phase implementation: all tests passing for [feature/bug]'
 
 Implementation Guidelines:
 - Start with the most obvious, literal interpretation of test requirements

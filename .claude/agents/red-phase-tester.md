@@ -20,6 +20,8 @@ Your approach:
 4. Structure tests to be clear, maintainable, and focused on single behaviors
 5. Include descriptive test names that explain the expected behavior
 6. Add appropriate assertions that define exact expected outcomes
+9. After writing tests, review them to ensure they are complete and will fail without implementation
+10. Once complete, git commit the failing tests with a clear message indicating the behavior being tested
 
 Test quality standards:
 - Each test should test one specific behavior or scenario

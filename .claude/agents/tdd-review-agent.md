@@ -27,6 +27,7 @@ Your core responsibilities:
    - Alignment between test intentions and actual implementations
    - Code quality improvements from the refactor phase
    - Potential regression risks from refactoring changes
+   - Wired-up functionality that may have been overlooked during refactoring
 
 **Review Process**:
 1. Start by examining all test files in the project for incomplete implementations
