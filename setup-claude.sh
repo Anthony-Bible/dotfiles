@@ -29,6 +29,16 @@ else
     print_warning "$CLAUDE_HOOKS_FILE not found, skipping Claude hooks setup"
 fi
 
+# Ensure showClearContextOnPlanAccept is set in Claude settings
+mkdir -p "$HOME/.claude"
+if [[ -f "$CLAUDE_SETTINGS_FILE" ]]; then
+    jq '. + {"showClearContextOnPlanAccept": true}' "$CLAUDE_SETTINGS_FILE" > "$CLAUDE_SETTINGS_FILE.tmp"
+    mv "$CLAUDE_SETTINGS_FILE.tmp" "$CLAUDE_SETTINGS_FILE"
+else
+    echo '{"showClearContextOnPlanAccept": true}' > "$CLAUDE_SETTINGS_FILE"
+fi
+print_status "Set showClearContextOnPlanAccept in Claude settings"
+
 # Setup Gemini configuration
 print_status "Setting up Gemini configuration"
 GEMINI_SETTINGS_FILE="$HOME/.gemini/settings.json"
