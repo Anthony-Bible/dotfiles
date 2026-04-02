@@ -6,9 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$DOTFILESDIR/scripts/openapi-lint.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/openapi-lint.sh"
           }
-
         ]
       },
       {
@@ -16,9 +15,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$DOTFILESDIR/scripts/shellformat.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/shellformat.sh"
           }
-
         ]
       },
       {
@@ -26,9 +24,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$DOTFILESDIR/scripts/goformat.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/goformat.sh"
           }
-
         ]
       },
       {
@@ -36,9 +33,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$DOTFILESDIR/scripts/protoformat.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/protoformat.sh"
           }
-
         ]
       }
     ]
