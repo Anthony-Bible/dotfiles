@@ -5,7 +5,10 @@ set -euo pipefail
 # =============================================================================
 # COLOR OUTPUT FUNCTIONS
 # =============================================================================
-echoerr() { echo -e "\033[31m$*\033[0m" >&2; }
+echoerr() {
+    echo -e "\033[31m$*\033[0m" >&2
+    HOOK_ERRORS="${HOOK_ERRORS:+${HOOK_ERRORS}$'\n'}$*"
+}
 echosuccess() { echo -e "\033[32m$*\033[0m" >&2; }
 echowarn() { echo -e "\033[33m$*\033[0m" >&2; }
 echoinfo() { echo -e "\033[34m$*\033[0m" >&2; }
@@ -14,16 +17,20 @@ echoinfo() { echo -e "\033[34m$*\033[0m" >&2; }
 # GLOBAL VARIABLES (managed by common functions)
 # =============================================================================
 VERBOSE=false
+# shellcheck disable=SC2034
 QUIET=false
 DRY_RUN=false
+# shellcheck disable=SC2034
 HELP_REQUESTED=false
 FINAL_EXIT_CODE=0
+HOOK_ERRORS=""
 
 # =============================================================================
 # COMMON ARGUMENT PARSING
 # =============================================================================
 parse_common_args() {
     while [[ $# -gt 0 ]]; do
+        # shellcheck disable=SC2034
         case $1 in
             -h|--help) HELP_REQUESTED=true; shift ;;
             -v|--verbose) VERBOSE=true; shift ;;
@@ -42,7 +49,6 @@ process_hook_input() {
     local file_extensions="$2"  # Comma-separated: ".go,.proto"
     local process_func="$3"
     shift 3
-    local extra_args=("$@")
 
     # Read from stdin (hook mode) or process arguments (direct mode)
     if [[ $# -gt 0 ]]; then
@@ -60,7 +66,6 @@ process_hook_input() {
             exit 2
         fi
 
-        echoinfo "Input received: $input"
 
         # Build jq filter for multiple extensions
         local jq_filter=".tool_input.file_path"
@@ -127,8 +132,8 @@ process_single_file() {
     fi
 
     # Execute tool-specific processing
-    "$process_func" "$filepath"
-    local exit_code=$?
+    local exit_code=0
+    "$process_func" "$filepath" || exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then
         FINAL_EXIT_CODE=$exit_code
@@ -196,11 +201,21 @@ finalize_format_script() {
 
     if [[ $FINAL_EXIT_CODE -eq 0 ]]; then
         echosuccess "All files passed $tool_name."
-    else
-        echoerr "$tool_name detected issues that need to be fixed."
+        exit 0
     fi
 
-    exit $FINAL_EXIT_CODE
+    local reason="${HOOK_ERRORS:-${tool_name} detected issues that need to be fixed.}"
+    jq -n \
+        --arg reason "$reason" \
+        '{
+            decision: "block",
+            reason: $reason,
+            hookSpecificOutput: {
+                hookEventName: "PostToolUse",
+                additionalContext: $reason
+            }
+        }'
+    exit 0
 }
 
 # =============================================================================
@@ -211,6 +226,7 @@ init_format_script() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
     if [[ -f "$script_dir/../lib/security.sh" ]]; then
+        # shellcheck source=/dev/null
         source "$script_dir/../lib/security.sh"
     fi
 }
