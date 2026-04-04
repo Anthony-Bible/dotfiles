@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script handles Claude and Gemini configuration setup
+# This script handles Claude preferences, CLAUDE.md, and Gemini configuration setup.
+# Claude hooks and agents are now provided by the claude-plugin/
+# Install with: claude plugin install ~/dotfiles/claude-plugin --scope user
 
 # Source setup utilities
 DOTFILESDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,26 +12,8 @@ source "$DOTFILESDIR/setup/core/utils.sh"
 
 # Colors are already defined in init.sh (sourced by utils.sh)
 
-# Setup Claude configuration
-print_status "Setting up Claude configuration"
-CLAUDE_HOOKS_FILE="$DOTFILESDIR/claude-hooks.json"
-CLAUDE_SETTINGS_FILE="$HOME/.claude/settings.json"
-
-if [[ -f "$CLAUDE_HOOKS_FILE" ]]; then
-    mkdir -p "$HOME/.claude"
-    if [[ -f "$CLAUDE_SETTINGS_FILE" ]]; then
-        print_status "Merging Claude hooks into existing settings"
-        jq -s '.[0] * .[1]' "$CLAUDE_SETTINGS_FILE" "$CLAUDE_HOOKS_FILE" > "$CLAUDE_SETTINGS_FILE.tmp"
-        mv "$CLAUDE_SETTINGS_FILE.tmp" "$CLAUDE_SETTINGS_FILE"
-    else
-        print_status "Creating new Claude settings file with hooks"
-        jq '. + {"model": "sonnet"}' "$CLAUDE_HOOKS_FILE" > "$CLAUDE_SETTINGS_FILE"
-    fi
-else
-    print_warning "$CLAUDE_HOOKS_FILE not found, skipping Claude hooks setup"
-fi
-
 # Ensure showClearContextOnPlanAccept is set in Claude settings
+CLAUDE_SETTINGS_FILE="$HOME/.claude/settings.json"
 mkdir -p "$HOME/.claude"
 if [[ -f "$CLAUDE_SETTINGS_FILE" ]]; then
     jq '. + {"showClearContextOnPlanAccept": true}' "$CLAUDE_SETTINGS_FILE" > "$CLAUDE_SETTINGS_FILE.tmp"
@@ -42,19 +26,21 @@ print_status "Set showClearContextOnPlanAccept in Claude settings"
 # Setup Gemini configuration
 print_status "Setting up Gemini configuration"
 GEMINI_SETTINGS_FILE="$HOME/.gemini/settings.json"
+PLUGIN_HOOKS_FILE="$DOTFILESDIR/claude-plugin/hooks/hooks.json"
 
-if [[ -f "$CLAUDE_HOOKS_FILE" ]]; then
+if [[ -f "$PLUGIN_HOOKS_FILE" ]]; then
     mkdir -p "$HOME/.gemini"
-    # Transform PostToolUse -> AfterTool and expand $DOTFILESDIR
-    TRANSFORMED_HOOKS=$(jq --arg DOTFILESDIR "$DOTFILESDIR" '
+    # Transform PostToolUse -> AfterTool, expand ${CLAUDE_PLUGIN_ROOT} to absolute path,
+    # and rename tool matchers for Gemini
+    TRANSFORMED_HOOKS=$(jq --arg PLUGINDIR "$DOTFILESDIR/claude-plugin" '
         .hooks.AfterTool = .hooks.PostToolUse |
         del(.hooks.PostToolUse) |
-        walk(if type == "string" then 
-            gsub("\\$DOTFILESDIR"; $DOTFILESDIR) |
+        walk(if type == "string" then
+            gsub("\\$\\{CLAUDE_PLUGIN_ROOT\\}"; $PLUGINDIR) |
             gsub("Write"; "write_file") |
             gsub("Edit"; "replace")
         else . end)
-    ' "$CLAUDE_HOOKS_FILE")
+    ' "$PLUGIN_HOOKS_FILE")
 
     if [[ -f "$GEMINI_SETTINGS_FILE" ]]; then
         print_status "Merging Gemini hooks into existing settings"
@@ -65,13 +51,12 @@ if [[ -f "$CLAUDE_HOOKS_FILE" ]]; then
         echo "$TRANSFORMED_HOOKS" | jq '. + {"model": "gemini"}' > "$GEMINI_SETTINGS_FILE"
     fi
 else
-    print_warning "$CLAUDE_HOOKS_FILE not found, skipping Gemini hooks setup"
+    print_warning "$PLUGIN_HOOKS_FILE not found, skipping Gemini hooks setup"
 fi
 
-# Setup agents for both
-CLAUDE_AGENTS_DIR="$DOTFILESDIR/.claude/agents"
-copy_agent_files "$CLAUDE_AGENTS_DIR" "$HOME/.claude/agents" "Claude"
-copy_agent_files "$CLAUDE_AGENTS_DIR" "$HOME/.gemini/agents" "Gemini"
+# Setup agents for Gemini (Claude agents are provided by the plugin)
+PLUGIN_AGENTS_DIR="$DOTFILESDIR/claude-plugin/agents"
+copy_agent_files "$PLUGIN_AGENTS_DIR" "$HOME/.gemini/agents" "Gemini"
 
 # Transform Gemini agents to remove color:, model:, quote descriptions, and add max_turns
 GEMINI_AGENTS_DIR="$HOME/.gemini/agents"
