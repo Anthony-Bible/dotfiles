@@ -58,6 +58,19 @@ fi
 PLUGIN_AGENTS_DIR="$DOTFILESDIR/claude-plugin/agents"
 copy_agent_files "$PLUGIN_AGENTS_DIR" "$HOME/.gemini/agents" "Gemini"
 
+# Setup Claude rules
+CLAUDE_RULES_SOURCE="$DOTFILESDIR/.claude/rules"
+CLAUDE_RULES_TARGET="$HOME/.claude/rules"
+if [[ -d "$CLAUDE_RULES_SOURCE" ]]; then
+    print_status "Setting up Claude rules"
+    mkdir -p "$CLAUDE_RULES_TARGET"
+    # Use -r to preserve directory structure (e.g. conductor/ subfolder)
+    cp -r "$CLAUDE_RULES_SOURCE"/. "$CLAUDE_RULES_TARGET/"
+    print_success "Claude rules setup complete"
+else
+    print_warning "$CLAUDE_RULES_SOURCE not found, skipping Claude rules setup"
+fi
+
 # Transform Gemini agents to remove color:, model:, quote descriptions, and add max_turns
 GEMINI_AGENTS_DIR="$HOME/.gemini/agents"
 if [[ -d "$GEMINI_AGENTS_DIR" ]]; then
