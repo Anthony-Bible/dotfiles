@@ -12,6 +12,32 @@ Personal configuration files for Linux development environments. Includes shell,
 - **Claude Code Plugin**: Auto-formatting hooks and TDD agents available as a Claude Code marketplace plugin (see `claude-plugin/`).
 - **Setup Script**: `setup.sh` automates stowing configs, installing dependencies, and setting up the environment.
 
+## Gemini CLI Extension
+
+This repository also functions as a **Gemini CLI extension**, providing custom TDD agents, context from `GEMINI.md`, and specialized development workflows.
+
+### Installing the Extension
+
+**From your Terminal:**
+
+```bash
+gemini extensions install https://github.com/Anthony-Bible/dotfiles --auto-update
+```
+
+**From within Gemini CLI:**
+
+```bash
+/extensions install https://github.com/Anthony-Bible/dotfiles --auto-update
+```
+
+### Features
+
+- **TDD Agents**: Ported from the Claude plugin, available as sub-agents in Gemini CLI.
+- **Contextual Knowledge**: Automatically includes `GEMINI.md` for project-specific rules and instructions.
+- **Deadpool Mode**: Experience the "Uncensored Chaos Edition" for a more... colorful development experience.
+
+---
+
 ## Claude Code Plugin
 
 This repo acts as a **Claude Code plugin marketplace**. The `dotfiles-dev-tools` plugin provides:
