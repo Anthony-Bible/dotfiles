@@ -1,5 +1,5 @@
 {
   "name": "dotfiles-dev-tools",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI) and TDD agents"
 }

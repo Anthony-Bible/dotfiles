@@ -1,6 +1,34 @@
 ---
 name: "tech-requirements-gatherer"
-description: "Use this agent when you need to gather, refine, or enhance technical requirements for a feature, bug fix, or agent configuration. This agent is ideal for turning vague descriptions into actionable Github/Gitlab issues with specific technical details, identifying edge cases, caveats, and implementation considerations before work begins.\\n\\n<example>\\nContext: The user wants to create a Github/Gitlab issue for a new feature but only has a rough idea.\\nuser: \"I want to add rate limiting to our API\"\\nassistant: \"Let me launch the tech-requirements-gatherer agent to extract the full technical requirements before we create the issue.\"\\n<commentary>\\nThe user has a vague feature request. Use the tech-requirements-gatherer agent to probe for specifics: which endpoints, what limits, what algorithm (token bucket, leaky bucket), storage backend (Redis, in-memory), response codes, headers to return, and edge cases like burst handling.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: The user wants to enhance an existing sparse Github/Gitlab issue with technical details.\\nuser: \"Can you beef up this issue: 'Users are getting logged out randomly'\"\\nassistant: \"I'll use the tech-requirements-gatherer agent to analyze this issue and add the technical depth it needs.\"\\n<commentary>\\nA vague bug report needs technical enrichment. The agent should identify: session storage mechanism, JWT vs cookie auth, token expiry logic, relevant code paths, reproduction conditions, and what a proper fix would entail.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: The user is about to build a new agent and wants a proper spec.\\nuser: \"I need an agent that processes webhooks from Stripe\"\\nassistant: \"Before we write any code, let me use the tech-requirements-gatherer agent to nail down the full technical spec.\"\\n<commentary>\\nBuilding an agent without clear requirements leads to rework. Use the tech-requirements-gatherer to extract: webhook event types, signature verification approach, idempotency handling, retry logic, error handling strategy, and data persistence requirements.\\n</commentary>\\n</example>"
+description: >
+  Use this agent when you need to gather, refine, or enhance technical requirements for a feature, bug fix, or agent configuration. This agent is ideal for turning vague descriptions into actionable Github/Gitlab issues with specific technical details, identifying edge cases, caveats, and implementation considerations before work begins.
+
+  <example>
+  Context: The user wants to create a Github/Gitlab issue for a new feature but only has a rough idea.
+  user: "I want to add rate limiting to our API"
+  assistant: "Let me launch the tech-requirements-gatherer agent to extract the full technical requirements before we create the issue."
+  <commentary>
+  The user has a vague feature request. Use the tech-requirements-gatherer agent to probe for specifics: which endpoints, what limits, what algorithm (token bucket, leaky bucket), storage backend (Redis, in-memory), response codes, headers to return, and edge cases like burst handling.
+  </commentary>
+  </example>
+
+  <example>
+  Context: The user wants to enhance an existing sparse Github/Gitlab issue with technical details.
+  user: "Can you beef up this issue: 'Users are getting logged out randomly'"
+  assistant: "I'll use the tech-requirements-gatherer agent to analyze this issue and add the technical depth it needs."
+  <commentary>
+  A vague bug report needs technical enrichment. The agent should identify: session storage mechanism, JWT vs cookie auth, token expiry logic, relevant code paths, reproduction conditions, and what a proper fix would entail.
+  </commentary>
+  </example>
+
+  <example>
+  Context: The user is about to build a new agent and wants a proper spec.
+  user: "I need an agent that processes webhooks from Stripe"
+  assistant: "Before we write any code, let me use the tech-requirements-gatherer agent to nail down the full technical spec."
+  <commentary>
+  Building an agent without clear requirements leads to rework. Use the tech-requirements-gatherer to extract: webhook event types, verification logic (secret signing), idempotency handling, retry logic, dead-letter queues, and database schema for storage.
+  </commentary>
+  </example>
 model: sonnet
 color: orange
 memory: project

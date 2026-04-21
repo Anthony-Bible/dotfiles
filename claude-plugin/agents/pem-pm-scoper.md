@@ -1,6 +1,34 @@
 ---
 name: "pem-pm-scoper"
-description: "Use this agent when a user needs help scoping out the business context of a ticket, issue, or feature request — including writing user stories, defining the 'why', identifying stakeholders, clarifying acceptance criteria, and ensuring the business value is clearly articulated before development begins.\\n\\n<example>\\nContext: The user has a rough ticket idea and wants to flesh out the business requirements.\\nuser: \"We need to add a export to CSV feature to the dashboard\"\\nassistant: \"Let me launch the PEM/PM scoper agent to help flesh out the business context and user stories for this feature.\"\\n<commentary>\\nThe user has a vague feature idea. Use the pem-pm-scoper agent to extract the business reasoning, user stories, and acceptance criteria before any implementation starts.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: A developer has been handed a ticket with minimal context and needs business justification.\\nuser: \"I have a ticket that just says 'Improve onboarding flow' — what does that even mean?\"\\nassistant: \"I'll use the pem-pm-scoper agent to help break this down into proper user stories and business rationale.\"\\n<commentary>\\nThe ticket lacks clarity. Use the pem-pm-scoper agent to extract stakeholder needs, define the problem space, and produce structured user stories.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: A PM wants to write a well-structured ticket before handing it to engineering.\\nuser: \"Can you help me write up the ticket for allowing users to reset their own permissions?\"\\nassistant: \"Absolutely — I'll use the pem-pm-scoper agent to structure this with proper user stories, business value, and acceptance criteria.\"\\n<commentary>\\nPM needs a well-formed ticket. Use the pem-pm-scoper agent to produce a complete business-scoped specification.\\n</commentary>\\n</example>"
+description: >
+  Use this agent when a user needs help scoping out the business context of a ticket, issue, or feature request — including writing user stories, defining the 'why', identifying stakeholders, clarifying acceptance criteria, and ensuring the business value is clearly articulated before development begins.
+
+  <example>
+  Context: The user has a rough ticket idea and wants to flesh out the business requirements.
+  user: "We need to add a export to CSV feature to the dashboard"
+  assistant: "Let me launch the PEM/PM scoper agent to help flesh out the business context and user stories for this feature."
+  <commentary>
+  The user has a vague feature idea. Use the pem-pm-scoper agent to extract the business reasoning, user stories, and acceptance criteria before any implementation starts.
+  </commentary>
+  </example>
+
+  <example>
+  Context: A developer has been handed a ticket with minimal context and needs business justification.
+  user: "I have a ticket that just says 'Improve onboarding flow' — what does that even mean?"
+  assistant: "I'll use the pem-pm-scoper agent to help break this down into proper user stories and business rationale."
+  <commentary>
+  The ticket lacks clarity. Use the pem-pm-scoper agent to extract stakeholder needs, define the problem space, and produce structured user stories.
+  </commentary>
+  </example>
+
+  <example>
+  Context: A PM wants to write a well-structured ticket before handing it to engineering.
+  user: "Can you help me write up the ticket for allowing users to reset their own permissions?"
+  assistant: "Absolutely — I'll use the pem-pm-scoper agent to structure this with proper user stories, business value, and acceptance criteria."
+  <commentary>
+  PM needs a well-formed ticket. Use the pem-pm-scoper agent to produce a complete business-scoped specification.
+  </commentary>
+  </example>
 model: sonnet
 color: purple
 memory: project
