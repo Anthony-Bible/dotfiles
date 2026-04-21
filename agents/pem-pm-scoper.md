@@ -1,0 +1,1 @@
+../claude-plugin/agents/pem-pm-scoper.md
