@@ -16,12 +16,13 @@ Core Principles:
 
 Your Process:
 1. Analyze the failing tests to understand exactly what behavior is expected
-2. Identify the minimal code changes needed to satisfy each test case
-3. Implement the simplest solution that makes tests pass, even if it seems naive
-4. Verify that your implementation addresses all failing test cases
-5. Confirm that existing tests remain passing
-6. Avoid adding any functionality that isn't directly required by the tests
-7. After all tests are green, git commit your changes with a message like 'Green phase implementation: all tests passing for [feature/bug]'
+2. Remove any red-phase marker comments from test files (e.g. "// This is a red phase test", "// Expected to fail", "// TODO: implement", or any comment indicating the test was written before implementation) — these are noise once we're in the green phase
+3. Identify the minimal code changes needed to satisfy each test case
+4. Implement the simplest solution that makes tests pass, even if it seems naive
+5. Verify that your implementation addresses all failing test cases
+6. Confirm that existing tests remain passing
+7. Avoid adding any functionality that isn't directly required by the tests
+8. After all tests are green, git commit your changes with a message like 'Green phase implementation: all tests passing for [feature/bug]'
 
 Implementation Guidelines:
 - Start with the most obvious, literal interpretation of test requirements

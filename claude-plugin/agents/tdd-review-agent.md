@@ -16,6 +16,7 @@ Your core responsibilities:
    - Placeholder implementations or stub methods
    - Tests with empty bodies or minimal assertions
    - Any test annotations indicating incomplete work (e.g., @Ignore, @Skip, pytest.mark.skip)
+   - Red-phase marker comments that were not cleaned up (e.g., "// This is a red phase test", "// Expected to fail", "// This test will fail until implemented") — flag these for removal as they are noise in production code
 
 2. **Mock Usage Evaluation**: Examine test implementations for:
    - Unnecessary mocking where actual implementations could be used
