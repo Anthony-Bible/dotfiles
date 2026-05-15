@@ -5,7 +5,7 @@
     "email": ""
   },
   "metadata": {
-    "description": "Development tools plugin: auto-formatting hooks (Go, Shell, Proto, OpenAPI) and TDD agents",
+    "description": "Development tools plugin: auto-formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, and skills",
     "pluginRoot": "."
   },
   "plugins": [
@@ -13,13 +13,13 @@
       "name": "dotfiles-dev-tools",
       "source": "./claude-plugin",
       "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI) and TDD agents",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "author": {
         "name": "Anthony Bible"
       },
       "repository": "https://github.com/Anthony-Bible/dotfiles",
       "license": "MIT",
-      "keywords": ["formatting", "tdd", "go", "shell", "proto", "openapi"],
+      "keywords": ["formatting", "tdd", "go", "shell", "proto", "openapi", "ddd", "adr"],
       "category": "development"
     }
   ]

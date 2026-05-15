@@ -58,6 +58,17 @@ fi
 PLUGIN_AGENTS_DIR="$DOTFILESDIR/claude-plugin/agents"
 copy_agent_files "$PLUGIN_AGENTS_DIR" "$HOME/.gemini/agents" "Gemini"
 
+# Setup skills for Gemini
+PLUGIN_SKILLS_DIR="$DOTFILESDIR/claude-plugin/skills"
+if [[ -d "$PLUGIN_SKILLS_DIR" ]]; then
+    print_status "Setting up Gemini skills"
+    mkdir -p "$HOME/.gemini/skills"
+    cp -r "$PLUGIN_SKILLS_DIR"/. "$HOME/.gemini/skills/"
+    print_success "Gemini skills setup complete"
+else
+    print_warning "$PLUGIN_SKILLS_DIR not found, skipping Gemini skills setup"
+fi
+
 # Setup Claude rules
 CLAUDE_RULES_SOURCE="$DOTFILESDIR/.claude/rules"
 CLAUDE_RULES_TARGET="$HOME/.claude/rules"
