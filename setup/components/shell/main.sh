@@ -63,20 +63,30 @@ configure_zsh() {
     fi
 }
 
+# Ensure a `source <file>` line is present and uncommented in ~/.zshrc.
+# Warns if a matching line is present but commented out, otherwise appends it.
+ensure_sourced_in_zshrc() {
+    local source_line="$1"
+    # Active (uncommented) source line: optional leading whitespace, then the literal line.
+    if grep -Eq -- "^[[:space:]]*${source_line//\$/\\$}([[:space:]]|$)" "$HOME/.zshrc"; then
+        return 0
+    fi
+    # Commented-out occurrence: warn rather than appending a duplicate.
+    if grep -Eq -- "^[[:space:]]*#.*${source_line//\$/\\$}" "$HOME/.zshrc"; then
+        print_status "Warning: '${source_line}' is commented out in $HOME/.zshrc; uncomment it to load shell functions."
+        return 0
+    fi
+    echo "$source_line" >> "$HOME/.zshrc"
+}
+
 # Setup shell functions
 setup_shell_functions() {
     # Get hostname for tcn-specific configuration
     if [[ $(hostname) == "tcn" ]]; then
-        # Put a line to source .tcn-functions in .zshrc only if it doesn't already exist
-        if ! grep -q -F 'source $HOME/.tcn-functions' "$HOME/.zshrc"; then
-            echo "source \$HOME/.tcn-functions" >> "$HOME/.zshrc"
-        fi
+        ensure_sourced_in_zshrc 'source $HOME/.tcn-functions'
     fi
 
-    # Put in .zshrc a line to source .zsh-functions only if line doesn't exist
-    if ! grep -q -F 'source $HOME/.zsh-functions' "$HOME/.zshrc"; then
-        echo "source \$HOME/.zsh-functions" >> "$HOME/.zshrc"
-    fi
+    ensure_sourced_in_zshrc 'source $HOME/.zsh-functions'
 }
 
 # Install nix package manager
