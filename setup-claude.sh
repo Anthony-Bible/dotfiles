@@ -97,10 +97,15 @@ if [[ -d "$GEMINI_AGENTS_DIR" ]]; then
         "$SED" -i '/^color:/d' "$agent_file"
         # Remove model: line
         "$SED" -i '/^model:/d' "$agent_file"
-        # Quote description: value if not already quoted
-        "$SED" -i 's|^description: \([^"].*\)$|description: "\1"|' "$agent_file"
-        # Add max_turns: 30 to frontmatter after description line
-        "$SED" -i '/^description:/a\max_turns: 30' "$agent_file"
+        # Remove memory: line (not part of Gemini's agent schema)
+        "$SED" -i '/^memory:/d' "$agent_file"
+        # Quote description: value if not already quoted and not a YAML block scalar (> or |)
+        "$SED" -i 's|^description: \([^"|>].*\)$|description: "\1"|' "$agent_file"
+        # Add max_turns: 30 after name: line (safe single-line anchor; inserting
+        # after description: would break folded/literal block scalars). Skip if present.
+        if ! grep -q '^max_turns:' "$agent_file"; then
+            "$SED" -i '/^name:/a\max_turns: 30' "$agent_file"
+        fi
     done
 fi
 
