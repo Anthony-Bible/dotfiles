@@ -12,7 +12,7 @@ if ! declare -f print_status &> /dev/null; then
 fi
 
 # Required packages for the setup
-REQUIRED_PACKAGES=(stow tmuxp git git-lfs)
+REQUIRED_PACKAGES=(stow tmuxp git git-lfs fzf)
 
 # Directories that must exist
 REQUIRED_DIRS=(

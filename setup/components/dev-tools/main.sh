@@ -76,12 +76,13 @@ install_ast_grep() {
         print_status "Installing ast-grep"
         execute mkdir -p ~/bin
 
-        # Define checksums for AST-grep binaries
+        # Define checksums for AST-grep binaries (pinned to version 0.43.0)
+        local ast_grep_version="0.43.0"
         declare -A ASTGREP_CHECKSUMS=(
-            ["app-aarch64-unknown-linux-gnu.zip"]="dd409e779752cd68f1afe9437c9f195245290d26d5293aa052c6c759dcfbddd1"
-            ["app-x86_64-unknown-linux-gnu.zip"]="253c94dc566652662cb1efdad86a08689578a3dcfbd7d7c03e4c8a73de79ba5b"
-            ["app-aarch64-apple-darwin.zip"]="4fda598391d0ad819e23de1355a3c1e16fe5aa4056ae90410321260cd1ba6f8b"
-            ["app-x86_64-apple-darwin.zip"]="3e7e8714a594b0f486b7493eb9b82ca21f2b15906102139af5a0fe2fdc4b1fea"
+            ["app-aarch64-unknown-linux-gnu.zip"]="e706846148493967f3ab8011334817edd86ce5acbec10718b2a7b40799c640ff"
+            ["app-x86_64-unknown-linux-gnu.zip"]="a26253a9c821d935f7e383e40f0de7c2ca62a4121de1f73a6d81ec32eae631e0"
+            ["app-aarch64-apple-darwin.zip"]="8c847d0a29aa4b3101b3361e0b3ee7fb53c7e497adc9ed1afc9615538cd40782"
+            ["app-x86_64-apple-darwin.zip"]="6d703090b106747b2f56086b6ccc7e798fe78bcae70257aa20519b220153555b"
         )
 
         local zip_file
@@ -102,7 +103,7 @@ install_ast_grep() {
             fi
         fi
 
-        ast_grep_url="https://github.com/ast-grep/ast-grep/releases/latest/download/$zip_file"
+        ast_grep_url="https://github.com/ast-grep/ast-grep/releases/download/${ast_grep_version}/$zip_file"
         expected_checksum="${ASTGREP_CHECKSUMS[$zip_file]}"
 
         secure_download "$ast_grep_url" "$zip_file" "$expected_checksum"
