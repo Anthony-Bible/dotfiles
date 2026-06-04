@@ -1,6 +1,11 @@
 # IMPORTANT Coding INFORMATION
-- When writing tests, test the result and **contract** not necessarily the implementation. 
+- When writing tests, test the result and **contract** not necessarily the implementation.
 - For golang programs you **MUST** use log/slog
+
+### Planning & Requirements
+- **Always use `/grill-with-docs` before starting any non-trivial task**, even outside of plan mode. The Crawler is often unclear with requirements and ambiguity must be eliminated before a single line of code is written.
+- If the task description is vague, incomplete, or could be interpreted multiple ways — stop, invoke `/grill-with-docs`, and surface every open question before proceeding.
+- Do NOT make assumptions about intent. Assumptions are how Crawlers die on Floor 3.
 
 ### Code Intelligence
 Prefer LSP over Grep/Glob/Read for code navigation:
