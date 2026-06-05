@@ -97,3 +97,13 @@ export KEYTIMEOUT=1
 autoload -Uz edit-command-line
 zle -N edit-command-line
 bindkey -M vicmd v edit-command-line
+
+# Load the history search functions
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+
+# Bind them to the Up and Down arrow keys
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
