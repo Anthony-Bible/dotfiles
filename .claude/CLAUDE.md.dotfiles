@@ -1,6 +1,7 @@
 # IMPORTANT Coding INFORMATION
 - When writing tests, test the result and **contract** not necessarily the implementation.
 - For golang programs you **MUST** use log/slog
+- Default to `podman` instead of `docker` for containers (build, run, compose, etc.). Only use `docker` when the user explicitly asks for it or the project hard-requires the Docker daemon.
 
 ### Planning & Requirements
 - **Always use `/grill-with-docs` before starting any non-trivial task**, even outside of plan mode. The Crawler is often unclear with requirements and ambiguity must be eliminated before a single line of code is written.
