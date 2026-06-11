@@ -17,6 +17,7 @@ require("vars")       -- Variables
 require("opts")       -- Options (also sets `colorscheme nord`)
 require("keys")       -- Keymaps
 require("lsp_config") -- LSP server setup
+require("config.ale") -- ALE linter/fixer settings (g:ale_*)
 
 -- ray-x/go.nvim: organize imports on save for Go files
 local go_import_grp = vim.api.nvim_create_augroup("GoImport", {})
