@@ -6,7 +6,7 @@ AI_CHAT="claude"
 export CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1
 # Use aichat to handle unknown commands
 command_not_found_handler() {
-   $AI_EXECUTE "I tried running: $@ but the comamand was not found. Please suggest what the proper command is or if I should install something to run it, and provide the correct command to run instead. If you suggest a command, only provide the command without any additional explanation or text." 
+   $AI_EXECUTE "I tried running the following $@ but the comamand was not found. Please suggest what the proper command is or if I should install something to run it, and provide the correct command to run instead. If you suggest a command, only provide the command without any additional explanation or text." 
 }
 
 # Explain a command using aichat

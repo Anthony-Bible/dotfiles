@@ -1,64 +1,38 @@
--- [[init.lua ]]
+-- [[ init.lua ]]
 
 -- LEADER
--- These keybindings need to be defined before the first /
--- is called; otherwise, it will default to "\"
+-- These must be set BEFORE lazy.nvim loads so plugin mappings are correct.
 vim.api.nvim_set_keymap("", "<Space>", "<Nop>", { noremap = true, silent = true })
 vim.g.mapleader = " "
-vim.g.localleader = " "
+vim.g.maplocalleader = "\\"
 
--- IMPORTS
+-- PLUGINS
+-- Bootstraps lazy.nvim and loads every spec under lua/plugins/.
+-- Plugin setup() calls (nvim-tree, lualine, nvim-autopairs, treesitter,
+-- go.nvim, which-key) now live in their lua/plugins/*.lua specs.
+require("config.lazy")
 
-require('plug')      -- Plugin
-require('vars')      -- Variables
+-- CONFIG (required AFTER lazy so plugins are on the runtimepath)
+require("vars")       -- Variables
+require("opts")       -- Options (also sets `colorscheme nord`)
+require("keys")       -- Keymaps
+require("lsp_config") -- LSP server setup
 
-require('keys')      -- Keymaps
-
-require('lsp_config')
-require('opts')      -- Options
-require('ale') -- ale setup
--- PLUGINS: Add this section
-require('nvim-tree').setup{}
-
--- Add the block below
-require('lualine').setup {
-  options = {
-    theme = 'dracula-nvim'
-  }
-}
-require('nvim-autopairs').setup{}
-vim.cmd([[
-  augroup packer_user_config
-    autocmd!
-    autocmd BufWritePost plugins.lua source <afile> | PackerCompile
-  augroup end
-]])
-
-
-local format_sync_grp = vim.api.nvim_create_augroup("GoImport", {})
+-- ray-x/go.nvim: organize imports on save for Go files
+local go_import_grp = vim.api.nvim_create_augroup("GoImport", {})
 vim.api.nvim_create_autocmd("BufWritePre", {
   pattern = "*.go",
   callback = function()
-   require('go.format').goimport()
+    require("go.format").goimport()
   end,
-  group = format_sync_grp,
+  group = go_import_grp,
 })
-
 
 vim.cmd([[set showtabline=2]])
---call deoplete#custom#option('omni_patterns', { 'go': '[^. *\t]\.\w*' })
+
 vim.api.nvim_create_autocmd("User", {
-	pattern = "DevcontainerBuildProgress",
-	callback = function()
-		vim.cmd("redrawstatus")
-	end,
-})
--- for ray-x/go.nvim
-local format_sync_grp = vim.api.nvim_create_augroup("GoFormat", {})
-vim.api.nvim_create_autocmd("BufWritePre", {
-  pattern = "*.go",
+  pattern = "DevcontainerBuildProgress",
   callback = function()
-   require('go.format').goimport()
+    vim.cmd("redrawstatus")
   end,
-  group = format_sync_grp,
 })
