@@ -1,5 +1,6 @@
 # IMPORTANT Coding INFORMATION
 - When writing tests, test the result and **contract** not necessarily the implementation.
+- Favor **property-based tests** (assert invariants over generated inputs) where the input space is large or the logic is a pure transform; use example-based tests elsewhere.
 - For golang programs you **MUST** use log/slog
 - Default to `podman` instead of `docker` for containers (build, run, compose, etc.). Only use `docker` when the user explicitly asks for it or the project hard-requires the Docker daemon.
 

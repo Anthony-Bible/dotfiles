@@ -1,5 +1,6 @@
 # IMPORTANT Coding Information
 - When writing tests, test the result and **contract** not necessarily the implementation.
+- Favor **property-based tests** (assert invariants over generated inputs) where the input space is large or the logic is a pure transform; use example-based tests elsewhere.
 - For Go programs you **MUST** use log/slog
 
 ### Code Intelligence
