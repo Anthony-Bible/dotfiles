@@ -305,3 +305,16 @@ synclaude() {
 }
 
 export CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+
+# ccdeeplink — build a Claude Code deep link (claude-cli://open) from
+# anywhere. Thin wrapper around scripts/claude-deeplink.sh in the dotfiles.
+# By default it copies a portable, shareable link to the clipboard and prints
+# it (no machine-local cwd); pass -o to open a session instead.
+# See: https://code.claude.com/docs/en/deep-links
+#   ccdeeplink "review the open PRs"          # copy + print a shareable link
+#   ccdeeplink -o -d "$PWD" "review the PRs"  # open a session here, prompt pre-filled
+#   ccdeeplink -r acme/payments "fix it"      # copy a repo-scoped link
+#   ccdeeplink -p -H "onboarding walkthrough" # print a home-dir link
+ccdeeplink() {
+  "${DOTFILESDIR:-$HOME/dotfiles}/scripts/claude-deeplink.sh" "$@"
+}
