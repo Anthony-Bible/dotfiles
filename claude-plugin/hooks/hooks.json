@@ -36,6 +36,15 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/protoformat.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash|mcp__cerebras-mcp__write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/govulncheck.sh"
+          }
+        ]
       }
     ]
   }
