@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# pi-implementer: run pi (the pi coding agent) + pi-vcc against a local llama-server as the
+# Implementer of a Hybrid run. The Orchestrator (a Claude Code session) never calls this directly
+# for Dispatches — pi-dispatch.py does — but `--setup` and `--check` are for humans and for the
+# skill's preflight.
+#
+# Config  ~/.config/pi-implementer/env   KEY=VALUE lines, the same names as local-model-beast's .env:
+#           LLAMA_URL       http://192.168.86.55:8080   the Server (no /v1)
+#           LLAMA_API_KEY   ...                          the Server's API key
+#           MODEL_ALIAS     qwen3.8-3.6-27b-blend        the Server's --alias
+#           CTX_SIZE        65536                        the Server's context window
+#           MAX_OUTPUT_TOKENS 16384  RESERVE_TOKENS 16384  (optional; raise both together)
+#         Environment variables of the same names override the file.
+# State   ~/.config/pi-implementer/agent  (PI_CODING_AGENT_DIR): models.json is regenerated on every
+#         launch; settings.json, pi-vcc-config.json and the pi-vcc extension are written by --setup.
+#         Your ~/.pi is never touched. Override the location with PI_IMPLEMENTER_HOME.
+# Usage   pi-implementer --setup        write the config (asks if missing), settings, install pi-vcc
+#         pi-implementer --check        exit 0 iff pi, pi-vcc, the config and the Server are all there
+#         pi-implementer [pi args]      e.g. pi-implementer -p "explain this repo" < /dev/null
+set -euo pipefail
+
+HOME_DIR="${PI_IMPLEMENTER_HOME:-$HOME/.config/pi-implementer}"
+CONFIG="$HOME_DIR/env"
+AGENT_DIR="$HOME_DIR/agent"
+mkdir -p "$HOME_DIR"
+
+# --- pi: the newest nvm Node >= 22 that has it, else whatever is on PATH. It is run under its own
+# Node explicitly, never by putting that Node on PATH: the Model's shell inherits PATH, and a Node
+# other than the machine's default there makes `npm install` build native modules the rest of the
+# toolchain cannot load.
+PI_BIN="${PI_BIN:-$(ls -d "$HOME"/.nvm/versions/node/v2[2-9]*/bin/pi 2>/dev/null | tail -1 || true)}"
+[ -x "${PI_BIN:-}" ] || PI_BIN="$(command -v pi || true)"
+PI_NODE=""
+if [ -x "${PI_BIN:-}" ]; then
+  PI_NODE="$(dirname "$PI_BIN")/node"
+  [ -x "$PI_NODE" ] || PI_NODE="$(command -v node || true)"
+fi
+
+need_pi() {
+  [ -x "${PI_BIN:-}" ] && [ -x "${PI_NODE:-}" ] && return 0
+  echo "pi not found. Install it under Node >= 22.19 (nvm), then rerun:" >&2
+  echo "  nvm install 22 && nvm use 22 && npm i -g --ignore-scripts @earendil-works/pi-coding-agent" >&2
+  return 1
+}
+
+# Read the config without exporting it; the environment wins.
+load_config() {
+  if [ -f "$CONFIG" ]; then
+    while IFS='=' read -r k v; do
+      case "$k" in ''|'#'*) continue ;; esac
+      v="${v%\"}"; v="${v#\"}"
+      [ -n "${!k:-}" ] || printf -v "$k" '%s' "$v"
+    done < "$CONFIG"
+  fi
+  BASE="${LLAMA_URL:-}"
+  KEY="${LLAMA_API_KEY:-}"
+  MODEL="${MODEL_ALIAS:-}"
+  CTX="${CTX_SIZE:-65536}"
+  MAX_OUT="${MAX_OUTPUT_TOKENS:-16384}"
+  RESERVE="${RESERVE_TOKENS:-16384}"
+}
+
+write_config() {
+  if [ ! -t 0 ]; then
+    echo "no config at $CONFIG and stdin is not a terminal; write it by hand:" >&2
+    printf '  LLAMA_URL=http://192.168.86.55:8080\n  LLAMA_API_KEY=...\n  MODEL_ALIAS=qwen3.8-3.6-27b-blend\n  CTX_SIZE=65536\n' >&2
+    return 1
+  fi
+  read -r -p "Server URL [http://192.168.86.55:8080]: " u; u="${u:-http://192.168.86.55:8080}"
+  read -r -p "Server API key: " k
+  read -r -p "Model alias [qwen3.8-3.6-27b-blend]: " m; m="${m:-qwen3.8-3.6-27b-blend}"
+  read -r -p "Context size [65536]: " c; c="${c:-65536}"
+  umask 077
+  printf 'LLAMA_URL=%s\nLLAMA_API_KEY=%s\nMODEL_ALIAS=%s\nCTX_SIZE=%s\n' "$u" "$k" "$m" "$c" > "$CONFIG"
+  echo "wrote $CONFIG"
+}
+
+write_models_json() {
+  mkdir -p "$AGENT_DIR"
+  # The Server as an OpenAI-compatible provider. reasoning_effort is not sent: the Server's own
+  # default decides, as it does for every other Harness.
+  cat > "$AGENT_DIR/models.json" <<JSON
+{
+  "providers": {
+    "local": {
+      "baseUrl": "$BASE/v1",
+      "api": "openai-completions",
+      "apiKey": "\$LLAMA_API_KEY",
+      "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
+      "models": [
+        { "id": "$MODEL", "name": "$MODEL (local Implementer)", "reasoning": true, "input": ["text"],
+          "contextWindow": $CTX, "maxTokens": $MAX_OUT }
+      ]
+    }
+  }
+}
+JSON
+}
+
+sync_settings() {
+  # Written once so `pi install` can keep adding to it; the compaction reserve follows the config on
+  # every launch. defaultProjectTrust never: -p runs must not load project-local .pi/ files from a
+  # workspace the Model writes to.
+  [ -f "$AGENT_DIR/settings.json" ] || cat > "$AGENT_DIR/settings.json" <<'JSON'
+{
+  "defaultProjectTrust": "never",
+  "quietStartup": true,
+  "compaction": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }
+}
+JSON
+  python3 - "$AGENT_DIR/settings.json" "$RESERVE" <<'PY'
+import json, sys
+p, n = sys.argv[1], int(sys.argv[2]); s = json.load(open(p))
+s.setdefault("compaction", {})["reserveTokens"] = n
+json.dump(s, open(p, "w"), indent=2)
+PY
+  [ -f "$AGENT_DIR/pi-vcc-config.json" ] || cat > "$AGENT_DIR/pi-vcc-config.json" <<'JSON'
+{ "overrideDefaultCompaction": true, "smartKeepTail": true, "continueAfterThresholdCompact": true, "debug": false }
+JSON
+}
+
+export PI_CODING_AGENT_DIR="$AGENT_DIR"
+export PI_VCC_CONFIG_PATH="$AGENT_DIR/pi-vcc-config.json"  # pi-vcc ignores PI_CODING_AGENT_DIR and would write ~/.pi otherwise
+export PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0
+
+case "${1:-}" in
+  --setup)
+    need_pi
+    [ -f "$CONFIG" ] || write_config
+    load_config
+    [ -n "$BASE" ] && [ -n "$KEY" ] && [ -n "$MODEL" ] || { echo "$CONFIG needs LLAMA_URL, LLAMA_API_KEY and MODEL_ALIAS" >&2; exit 1; }
+    write_models_json; sync_settings
+    if [ ! -d "$AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" ]; then
+      # pi install shells out to npm, which must be Node 22's here (a one-off; the Model is not involved).
+      PATH="$(dirname "$PI_NODE"):$PATH" PI_OFFLINE=0 "$PI_NODE" "$PI_BIN" install "${PI_VCC_SOURCE:-npm:@sting8k/pi-vcc}"
+    fi
+    "$PI_NODE" "$PI_BIN" list
+    echo "setup complete: $HOME_DIR"
+    ;;
+  --check)
+    ok=0
+    need_pi || ok=1
+    [ -x "${PI_NODE:-}" ] && echo "pi:      $PI_BIN (node $("$PI_NODE" -v))"
+    [ -d "$AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" ] && echo "pi-vcc:  $AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" || { echo "pi-vcc:  missing (run --setup)" >&2; ok=1; }
+    load_config
+    if [ -n "$BASE" ] && [ -n "$KEY" ] && [ -n "$MODEL" ]; then
+      echo "config:  $CONFIG -> $MODEL at $BASE, ctx $CTX, out $MAX_OUT, reserve $RESERVE"
+      curl -fsS -m 5 "$BASE/health" >/dev/null && echo "server:  healthy" || { echo "server:  $BASE/health not reachable" >&2; ok=1; }
+    else
+      echo "config:  $CONFIG missing or incomplete (run --setup)" >&2; ok=1
+    fi
+    exit $ok
+    ;;
+  *)
+    need_pi
+    load_config
+    [ -n "$BASE" ] && [ -n "$KEY" ] && [ -n "$MODEL" ] || { echo "no config: run pi-implementer --setup" >&2; exit 1; }
+    write_models_json; sync_settings
+    curl -fsS -m 5 "$BASE/health" >/dev/null || { echo "Server not reachable at $BASE" >&2; exit 1; }
+    export LLAMA_API_KEY="$KEY"
+    # Allow launching from inside a Claude Code session (the Orchestrator); keep nothing else of it.
+    exec env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_ENTRYPOINT \
+      "$PI_NODE" "$PI_BIN" --provider local --model "$MODEL" "$@"
+    ;;
+esac
