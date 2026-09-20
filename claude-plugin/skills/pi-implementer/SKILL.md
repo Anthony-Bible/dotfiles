@@ -13,7 +13,7 @@ in the Ticket, not in the Dispatch.
 
 Paths below are relative to this skill's base directory (shown when the skill was invoked); the two
 programs are `scripts/pi-implementer` (the pi launcher + setup/check) and `scripts/pi-dispatch.py` (init,
-dispatch, ledger). Read `TICKET-FORMAT.md` before writing the first Ticket, every time.
+dispatch, ledger). Read `references/TICKET-FORMAT.md` before writing the first Ticket, every time.
 
 ## 0. Preflight
 
@@ -47,7 +47,7 @@ produces besides the code lives under `.hybrid/`; it is never committed.
 
 ## 3. Tickets
 
-Write each Ticket to `.hybrid/tickets/NN-<slug>.md` in the format of `TICKET-FORMAT.md`: one file's
+Write each Ticket to `.hybrid/tickets/NN-<slug>.md` in the format of `references/TICKET-FORMAT.md`: one file's
 worth of work, every fact verbatim, exact paths, "read once then edit", a Verify block that ends with
 `DONE` or the mismatching lines, and a Do-not list. Tests go in their own Tickets of at most three tests
 per `write`. Include the repository's conventions the Implementer must follow (logger, error wrapping,
