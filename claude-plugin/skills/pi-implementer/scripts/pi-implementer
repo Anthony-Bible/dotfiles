@@ -11,7 +11,7 @@
 #                                                        use the Server's default one, or every Dispatch swaps)
 #           CTX_SIZE        43690                        each Dispatch's window: the Server's KV pool divided by
 #                                                        MAX_DISPATCHES (131072 / 3 on a PARALLEL=3 Server)
-#           MAX_DISPATCHES  3                            Dispatches allowed at once (default 1); never more than
+#           MAX_DISPATCHES  3                            Dispatches allowed at once (default 3); never more than
 #                                                        the Server's slots, or the extra ones queue and time out
 #           MAX_OUTPUT_TOKENS 16384  RESERVE_TOKENS 16384  (optional; raise both together)
 #         Environment variables of the same names override the file.
@@ -155,7 +155,7 @@ case "${1:-}" in
     [ -d "$AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" ] && echo "pi-vcc:  $AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" || { echo "pi-vcc:  missing (run --setup)" >&2; ok=1; }
     load_config
     if [ -n "$BASE" ] && [ -n "$KEY" ] && [ -n "$MODEL" ]; then
-      echo "config:  $CONFIG -> $MODEL at $BASE, ctx $CTX, out $MAX_OUT, reserve $RESERVE, ${MAX_DISPATCHES:-1} at once"
+      echo "config:  $CONFIG -> $MODEL at $BASE, ctx $CTX, out $MAX_OUT, reserve $RESERVE, ${MAX_DISPATCHES:-3} at once"
       curl -fsS -m 5 "$BASE/health" >/dev/null && echo "server:  healthy" || { echo "server:  $BASE/health not reachable" >&2; ok=1; }
     else
       echo "config:  $CONFIG missing or incomplete (run --setup)" >&2; ok=1

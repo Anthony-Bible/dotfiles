@@ -17,7 +17,7 @@ Usage (from anywhere in the repo; the main checkout is found through git):
   pi-dispatch.py clean                                drop every Worktree of this repo whose Dispatch is not running
   pi-dispatch.py ledger                               the Dispatch table from .hybrid/dispatches.jsonl
 
-At most MAX_DISPATCHES (environment, else ~/.config/pi-implementer/env, else 1) Dispatches run at once; one
+At most MAX_DISPATCHES (environment, else ~/.config/pi-implementer/env, else 3) Dispatches run at once; one
 more exits 2 without starting. Worktrees live outside the repo, under
 ~/.cache/pi-implementer/worktrees/<repo>-<hash>/, so no tool run in the repo ever sees them.
 
@@ -80,7 +80,7 @@ def max_dispatches():
             if k == "MAX_DISPATCHES":
                 v = val.strip().strip('"')
     try:
-        return max(1, int(v or 1))
+        return max(1, int(v or 3))
     except ValueError:
         sys.exit(f"MAX_DISPATCHES must be a whole number, got {v!r}")
 
