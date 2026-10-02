@@ -60,6 +60,8 @@ const QUIP_MODEL = 'haiku'
 /** At most one quip call in flight, and none sooner than this after the last one began. */
 const QUIP_GAP_MS = 8000
 const TOAST_MS = 6000
+/** A model-written quip is a full sentence of up to 140 characters: it stays long enough to read. */
+const QUIP_TOAST_MS = 15000
 
 type Watch = {
   root: string
@@ -309,7 +311,7 @@ async function announce(
     })
     const quip = r.isAnswered ? cleanQuip(r.text) : undefined
     const points = `(${a.points >= 0 ? '+' : '−'}${Math.abs(a.points)} CP)`
-    $.ui.toast(quip ? `${quip} ${points}` : plain, { timeoutMs: TOAST_MS })
+    $.ui.toast(quip ? `${quip} ${points}` : plain, { timeoutMs: quip ? QUIP_TOAST_MS : TOAST_MS })
   } catch {
     $.ui.toast(plain, { timeoutMs: TOAST_MS }) // the model call failed or timed out: the award still shows
   } finally {
