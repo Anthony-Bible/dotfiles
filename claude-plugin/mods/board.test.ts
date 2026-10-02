@@ -95,7 +95,10 @@ describe('boardRows', () => {
   test('lists running and this run branch only, newest first, with a phase each', () => {
     const rows = boardRows({
       branch: 'hybrid/x',
-      running: [{ meta: meta(5), counts: emptyCounts(), nowMs: Date.parse('2026-10-02T10:01:30') }],
+      running: [
+        { meta: meta(5), counts: emptyCounts(), nowMs: Date.parse('2026-10-02T10:01:30') },
+        { meta: { ...meta(6), run_branch: 'hybrid/other' }, counts: emptyCounts(), nowMs: 0 },
+      ],
       finished: [row(1), row(2), row(3), row(4, 'hybrid/other')],
       outcomes: [
         { n: 1, outcome: 'conflict' },

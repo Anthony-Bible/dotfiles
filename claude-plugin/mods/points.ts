@@ -27,9 +27,20 @@ const PR = /\bgh\s+pr\s+create\b/
 const CHECK =
   /\b(?:go\s+(?:test|build|vet)|pytest|cargo\s+(?:test|build|check|clippy)|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|typecheck|lint)|tsc|make|nix\s+(?:build|flake\s+check)|golangci-lint|shellcheck)\b/
 
+/** The command with its quoted strings blanked, so a commit message or an echo never reads as a command. */
+const unquoted = (command: string): string => command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, "''")
+
+/** The commands a shell line chains with `;`, `&&`, `||` or newlines; a pipeline stays one. */
+export const segments = (command: string): string[] =>
+  unquoted(command)
+    .split(/&&|\|\||;|\n/)
+    .map(c => c.trim())
+    .filter(Boolean)
+
 /** What a Bash command is, for scoring. A force push wins over everything else in the same command. */
-export const classify = (command: string): CommandKind =>
-  FORCE_PUSH.test(command)
+export const classify = (raw: string): CommandKind => {
+  const command = unquoted(raw)
+  return FORCE_PUSH.test(command)
     ? 'force-push'
     : PR.test(command)
       ? 'pr'
@@ -38,20 +49,36 @@ export const classify = (command: string): CommandKind =>
         : CHECK.test(command)
           ? 'check'
           : 'other'
+}
 
 export const STREAK_MILESTONES = [5, 10, 25] as const
 
 /**
- * The award for a finished foreground Bash call, or undefined when it does not score. `isFirstCheck` is true
- * for the session's first test/build run.
+ * The awards for a finished foreground Bash call, one per kind its chained commands hold (none when nothing
+ * scores). The exit status is the whole line's: a failed line costs its check (the likeliest culprit) and
+ * any force push, and earns no milestone, since which command failed is unknown. `isFirstCheck` is true for
+ * the session's first test/build run.
  */
-export const bashAward = (
+export const bashAwards = (
   command: string,
   isError: boolean,
   score: Score,
   isFirstCheck: boolean,
+): Award[] => {
+  const kinds = new Set(segments(command).map(classify))
+  const order: CommandKind[] = isError ? ['force-push', 'check'] : ['force-push', 'pr', 'commit', 'check']
+  return order
+    .filter(k => kinds.has(k))
+    .map(k => kindAward(k, isError, score, isFirstCheck))
+    .filter((a): a is Award => a !== undefined)
+}
+
+const kindAward = (
+  kind: CommandKind,
+  isError: boolean,
+  score: Score,
+  isFirstCheck: boolean,
 ): Award | undefined => {
-  const kind = classify(command)
   if (kind === 'force-push') {
     return { points: -200, event: 'force-pushed over shared history', debuff: 'Shame' }
   }
@@ -81,7 +108,7 @@ export const bashAward = (
   return undefined
 }
 
-/** A tool call that errored or was denied, outside the commands bashAward scores. */
+/** A tool call that errored or was denied, outside the commands bashAwards scores. */
 export const errorAward = (tool: string, isDenied: boolean): Award => ({
   points: -5,
   event: isDenied ? `had a ${tool} call denied` : `had a ${tool} call error out`,

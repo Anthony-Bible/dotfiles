@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { apply, bashAward, classify, cleanQuip, level, statusLine, type Award, type Score } from './points'
+import { apply, bashAwards, classify, cleanQuip, level, statusLine, type Award, type Score } from './points'
 
 // A small seeded generator, so a failing case reproduces.
 const rng = (seed: number) => () => {
@@ -9,6 +9,9 @@ const rng = (seed: number) => () => {
 }
 const pick = <T>(r: () => number, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T
 const RUNS = 300
+// The one award a lone command earns, if any.
+const bashAward = (command: string, isError: boolean, score: Score, isFirstCheck: boolean) =>
+  bashAwards(command, isError, score, isFirstCheck)[0]
 
 const CHECKS = [
   'go test ./...',
@@ -89,6 +92,34 @@ describe('bashAward', () => {
     expect(bashAward('git commit -m x', true, s, false)).toBeUndefined()
     expect(bashAward('gh pr create --fill', true, s, false)).toBeUndefined()
     expect(bashAward('git push -f', true, s, false)?.points).toBe(-200)
+  })
+})
+
+describe('bashAwards on chained commands', () => {
+  const s = { session: 0, streak: 0 }
+  const kinds = (command: string, isError: boolean) =>
+    bashAwards(command, isError, s, false).map(a => a.event)
+
+  test('a passing chain earns every milestone and check in it, once each', () => {
+    const r = rng(4)
+    for (let i = 0; i < RUNS; i++) {
+      const parts = [pick(r, CHECKS), pick(r, CHECKS), 'git commit -m x', pick(r, NOISE)].sort(
+        () => r() - 0.5,
+      )
+      const awards = bashAwards(parts.join(pick(r, [' && ', '; ', '\n'])), false, s, false)
+      expect(awards.map(a => a.points).sort()).toEqual([10, 25])
+    }
+  })
+
+  test('a failing chain costs its check and earns nothing', () => {
+    expect(kinds('go test ./... && git commit -m x', true)).toEqual(['ran a test/build that failed'])
+    expect(kinds('git commit -m x && gh pr create', true)).toEqual([])
+    expect(bashAwards('go test ./... && git push -f', true, s, false).map(a => a.points)).toEqual([-200, -15])
+  })
+
+  test('quoted text never reads as a command', () => {
+    expect(kinds('git commit -m "go test; make it work"', false)).toEqual(['made a git commit'])
+    expect(kinds("echo 'git push --force && go test'", false)).toEqual([])
   })
 })
 

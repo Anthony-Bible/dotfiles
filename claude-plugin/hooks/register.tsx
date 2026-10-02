@@ -31,7 +31,7 @@ import {
 } from '../mods/board'
 import {
   apply,
-  bashAward,
+  bashAwards,
   cleanQuip,
   dispatchAward,
   errorAward,
@@ -71,6 +71,8 @@ type Watch = {
   sizes: { outcomes?: number; dispatches?: number }
   /** Lines already seen, so only later ones become Fates; undefined before the baseline read. */
   seen: { outcomes?: number; dispatches?: number }
+  /** The .json names under .hybrid/running/ at the last full read, so a leftover one is read once. */
+  runFiles?: string
 }
 
 // Module variables: a hot reload starts them over (session.start runs again and re-baselines the board),
@@ -157,7 +159,10 @@ async function refresh($: EngineInterface, w: Watch): Promise<{ fates: Fate[]; s
   ).stdout.trim()
   const now = await $.clock.now()
 
-  const metas = await runningMetas($, w)
+  // Every live Dispatch is tracked, so one already running is not "started" again when the checkout comes
+  // back to its branch; only this run branch's are followed, shown and auto-opened for.
+  const live = await runningMetas($, w)
+  const metas = live.filter(m => m.run_branch === branch)
   const running = []
   for (const meta of metas) running.push({ meta, counts: await followLog($, w, meta.log), nowMs: now })
   for (const log of [...w.logs.keys()]) if (!metas.some(m => m.log === log)) w.logs.delete(log)
@@ -182,18 +187,22 @@ async function refresh($: EngineInterface, w: Watch): Promise<{ fates: Fate[]; s
   w.seen = { outcomes: outcomes.length, dispatches: finished.length }
 
   const started = metas.map(m => m.n).filter(n => !w.running.has(n))
-  w.running = new Set(metas.map(m => m.n))
+  w.running = new Set(live.map(m => m.n))
 
   const rows = boardRows({ branch, running, finished, outcomes, worktreesPresent: present })
   await update($, board, (): BoardState => ({ branch, ctxLimit: w.ctxLimit, rows }))
   return { fates, started }
 }
 
-async function isPaneOpen($: EngineInterface): Promise<boolean> {
-  return (await $.ui.panes()).some(p => p.id === PANE)
+/** The board's pane, if open: placed (drawn), or waiting undrawn for a wider terminal. */
+async function boardPane($: EngineInterface) {
+  return (await $.ui.panes()).find(p => p.id === PANE)
 }
 
-/** One poll: cheap stats always; a full read only while something runs, the pane is open or a file grew. */
+/**
+ * One poll: cheap stats always; a full read only while a Dispatch runs, the pane is drawn, or a file grew or
+ * came or went. A .json a killed pi-dispatch.py left behind is read once, not every poll.
+ */
 async function tick($: EngineInterface, force: boolean): Promise<void> {
   const w = watch
   if (!w || !(await $.fs.exists(`${w.root}/.hybrid`))) return
@@ -203,14 +212,29 @@ async function tick($: EngineInterface, force: boolean): Promise<void> {
     dispatches: await sizeOf($, `${hybrid}/dispatches.jsonl`),
   }
   const runningDir = `${hybrid}/running`
-  const hasRunFiles =
-    (await $.fs.exists(runningDir)) && (await $.fs.list(runningDir)).some(e => e.name.endsWith('.json'))
-  const hasGrown = sizes.outcomes !== w.sizes.outcomes || sizes.dispatches !== w.sizes.dispatches
-  if (!(force || hasGrown || hasRunFiles || w.running.size > 0 || (await isPaneOpen($)))) return
+  const runFiles = (await $.fs.exists(runningDir))
+    ? (await $.fs.list(runningDir))
+        .map(e => e.name)
+        .filter(n => n.endsWith('.json'))
+        .sort()
+        .join(',')
+    : ''
+  const hasChanged =
+    sizes.outcomes !== w.sizes.outcomes || sizes.dispatches !== w.sizes.dispatches || runFiles !== w.runFiles
+  const isDrawn = (await boardPane($))?.isPlaced === true
+  if (!(force || hasChanged || w.running.size > 0 || isDrawn)) return
   w.sizes = sizes
+  w.runFiles = runFiles
   const { fates, started } = await refresh($, w)
   for (const fate of fates) await award($, dispatchAward(fate.fate, fate.ticket))
-  if (started.length > 0 && !(await isPaneOpen($))) await $.ui.open({ id: PANE, title: TITLE })
+  if (started.length === 0 || isDrawn) return
+  // Unasked, the pane seats only from 144 columns and otherwise waits undrawn: say so rather than nothing.
+  const pane = (await boardPane($)) ?? (await $.ui.open({ id: PANE, title: TITLE }))
+  if (!pane.isPlaced) {
+    $.ui.toast(`Dispatch #${started.join(', #')} started: /dispatches shows the board`, {
+      timeoutMs: TOAST_MS,
+    })
+  }
 }
 
 async function startBoard($: EngineInterface): Promise<void> {
@@ -286,6 +310,8 @@ async function announce(
     const quip = r.isAnswered ? cleanQuip(r.text) : undefined
     const points = `(${a.points >= 0 ? '+' : '−'}${Math.abs(a.points)} CP)`
     $.ui.toast(quip ? `${quip} ${points}` : plain, { timeoutMs: TOAST_MS })
+  } catch {
+    $.ui.toast(plain, { timeoutMs: TOAST_MS }) // the model call failed or timed out: the award still shows
   } finally {
     isQuipBusy = false
   }
@@ -368,9 +394,10 @@ export const register: Register = on => {
         await award($, errorAward('Bash', true))
         return ran
       }
-      const a = bashAward(e.command, ran.isError === true, await read($, score), !hasChecked)
-      if (a?.isGreen !== undefined) hasChecked = true
-      if (a) await award($, a)
+      for (const a of bashAwards(e.command, ran.isError === true, await read($, score), !hasChecked)) {
+        if (a.isGreen !== undefined) hasChecked = true
+        await award($, a)
+      }
       return ran
     }
     if (isDenied || ran.isError === true) await award($, errorAward(String(e.tool), isDenied))

@@ -139,18 +139,20 @@ export type BoardInput = {
  */
 export const boardRows = (input: BoardInput): BoardRow[] => {
   const fate = new Map(input.outcomes.map(o => [o.n, o.outcome]))
-  const running = input.running.map(({ meta, counts, nowMs }): BoardRow => ({
-    n: meta.n,
-    ticket: meta.ticket,
-    phase: 'running',
-    wallS: Math.max(0, Math.round((nowMs - Date.parse(meta.started)) / 1000)),
-    calls: counts.calls,
-    maxTurns: meta.max_turns,
-    tools: counts.tools,
-    ctx: counts.ctx,
-    lastTool: counts.lastTool,
-    detail: counts.lastText,
-  }))
+  const running = input.running
+    .filter(({ meta }) => meta.run_branch === input.branch)
+    .map(({ meta, counts, nowMs }): BoardRow => ({
+      n: meta.n,
+      ticket: meta.ticket,
+      phase: 'running',
+      wallS: Math.max(0, Math.round((nowMs - Date.parse(meta.started)) / 1000)),
+      calls: counts.calls,
+      maxTurns: meta.max_turns,
+      tools: counts.tools,
+      ctx: counts.ctx,
+      lastTool: counts.lastTool,
+      detail: counts.lastText,
+    }))
   const live = new Set(running.map(r => r.n))
   const finished = input.finished
     .filter(r => r.run_branch === input.branch && !live.has(r.n))
