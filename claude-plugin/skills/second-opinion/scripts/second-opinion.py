@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.8"
+# dependencies = []
+# ///
 """The non-judgement half of a Review: run the Reviewer (Muse Code, `muse exec`) over a snapshot of the Review
 Target and record what it said. The Author (the Claude Code session using the second-opinion skill) verifies
 every Finding, writes the Rebuttal and decides; this script only snapshots, runs, parses and records.
@@ -25,7 +29,8 @@ the run left behind (only those that descend from the snapshot). Muse's own .mus
 .git/info/exclude itself.
 
 The 10-minute budget covers the review and the Rebuttal together. Runs are kept in <git-dir>/second-opinion/.
-Python 3.8+, stdlib only.
+Python 3.8+, stdlib only. Runs through `uv run --script` (PEP 723 metadata above); `python3 second-opinion.py`
+works too.
 """
 import argparse, json, os, shutil, signal, subprocess, sys, tempfile, time, uuid
 
@@ -191,10 +196,13 @@ def run_muse(root, run, turn, prompt, schema, meta):
                 continue  # stderr noise, or a line cut off when muse died
             if isinstance(rec, dict) and rec.get("payload_type", "").startswith("run.terminal."):
                 terminal = rec["payload"]
-    if proc.returncode != 0 or not terminal or terminal.get("terminal") != "completed":
-        tail = open(paths["stderr"]).read().strip().splitlines()[-3:]
+    tail = open(paths["stderr"]).read().strip().splitlines()[-3:]
+    if not terminal or terminal.get("terminal") != "completed":
         detail = (terminal or {}).get("reason") or " | ".join(tail) or "no final answer in the event stream"
         return None, f"muse exited {proc.returncode}: {detail}"
+    if proc.returncode != 0:  # a completed answer still counts: muse exits 1 when its own worktree cleanup fails
+        meta.setdefault("warnings", []).append(f"turn {turn}: muse exited {proc.returncode} after a completed "
+                                               "answer: " + (" | ".join(tail) or "no stderr"))
     try:
         return json.loads(terminal["text"]), None
     except (json.JSONDecodeError, TypeError):
@@ -268,7 +276,8 @@ def cmd_review(a):
     out({"status": "ok", "run": run, "target": a.target, "snapshot": snap, "base": base, **stats,
          "findings": [f for f in findings if f["severity"] != "nit"],
          "nits_dropped": sum(f["severity"] == "nit" for f in findings),
-         "seconds": round(time.time() - meta["started"])})
+         "seconds": round(time.time() - meta["started"]), **({"warnings": meta["warnings"]} if "warnings" in meta
+                                                              else {})})
 
 
 def cmd_rebut(a):
@@ -309,7 +318,8 @@ def cmd_rebut(a):
     out({"status": "ok", "run": a.run,
          "responses": [responses.get(r["finding_id"], {"finding_id": r["finding_id"], "stance": "no reply",
                                                         "argument": ""}) for r in rebuttals],
-         "seconds_total": round(time.time() - meta["started"])})
+         "seconds_total": round(time.time() - meta["started"]),
+         **({"warnings": meta["warnings"]} if "warnings" in meta else {})})
 
 
 def main():
