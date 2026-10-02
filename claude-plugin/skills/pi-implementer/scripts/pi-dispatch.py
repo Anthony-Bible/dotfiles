@@ -1,28 +1,42 @@
 #!/usr/bin/env python3
-"""The non-judgement half of a Hybrid run: run one Dispatch of a Ticket through pi + pi-vcc under caps
-and record what happened. The Orchestrator (the Claude Code session using the pi-implementer skill)
-writes the Ticket, reads the result, runs the Gate and decides; this script only runs and records.
+"""The non-judgement half of a Hybrid run: run Dispatches of Tickets through pi + pi-vcc under caps, each
+in its own Worktree, and record what happened. The Orchestrator (the Claude Code session using the
+pi-implementer skill) writes the Tickets, reads the results, runs the Gates and decides; this script only
+runs, records and moves commits.
 
-Usage (from the repo root):
+Usage (from anywhere in the repo; the main checkout is found through git):
   pi-dispatch.py init [--branch hybrid/<slug>]        .hybrid/ layout, .git/info/exclude entry, ledger header, branch
   pi-dispatch.py dispatch TICKET.md [--max-turns 40] [--timeout 1200] [--result-chars 4000]
-                                                     copy the Ticket to .hybrid/TICKET.md, run pi on a pointer prompt,
-                                                     log to .hybrid/logs/NN-<ticket>.jsonl, append .hybrid/dispatches.jsonl
+                                                     claim Dispatch NN, make its Worktree (branch <run>--NN-<ticket>
+                                                     from the run branch's HEAD), copy the Ticket to the Worktree's
+                                                     .hybrid/TICKET.md, run pi there on a pointer prompt, log to
+                                                     .hybrid/logs/NN-<ticket>.jsonl, append .hybrid/dispatches.jsonl
+  pi-dispatch.py land NN                              cherry-pick the Worktree's commits onto the run branch and
+                                                     remove the Worktree; on a conflict abort the pick and keep it
+  pi-dispatch.py drop NN                              remove Dispatch NN's Worktree and branch without landing
+  pi-dispatch.py clean                                drop every Worktree of this repo whose Dispatch is not running
   pi-dispatch.py ledger                               the Dispatch table from .hybrid/dispatches.jsonl
 
+At most MAX_DISPATCHES (environment, else ~/.config/pi-implementer/env, else 1) Dispatches run at once; one
+more exits 2 without starting. Worktrees live outside the repo, under
+~/.cache/pi-implementer/worktrees/<repo>-<hash>/, so no tool run in the repo ever sees them.
+
 Exit status of dispatch: 0 = pi finished on its own with no error; 1 = error, timeout or turn cap (the partial
-work is still on disk — the Gate decides what it is worth).
+work is still in the Worktree — the Gate decides what it is worth); 2 = refused, too many running. Exit status
+of land: 0 = landed; 1 = nothing to land or bad state; 3 = conflict (aborted, the run branch is unchanged).
 
 pi has no --max-turns, so its JSON event stream is read live and the whole process group is killed after
 max_turns API calls or at the timeout; either way the log is kept. Thinking arrives as text without a token
 count from the Server, so thinking tokens are estimated by splitting the exact output count by characters.
-Python 3.8+, stdlib only.
+Python 3.8+, stdlib only; git 2.31+ (--path-format).
 """
-import argparse, json, os, shutil, signal, subprocess, sys, threading, time
+import argparse, fcntl, glob, hashlib, json, os, re, shutil, signal, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PI = os.path.join(HERE, "pi-implementer")
 HYBRID = ".hybrid"
+CONFIG = os.path.join(os.environ.get("PI_IMPLEMENTER_HOME", os.path.expanduser("~/.config/pi-implementer")), "env")
+WORKTREES = os.path.expanduser("~/.cache/pi-implementer/worktrees")
 PI_FLAGS = ["-p", "--mode", "json", "--no-context-files", "--no-skills", "--no-prompt-templates", "-na"]
 UNATTENDED = ("This is an unattended, non-interactive run: nobody will answer questions, so do not ask any and "
               "do not run planning or interview skills. Make reasonable choices yourself and build it.\n\n")
@@ -38,11 +52,105 @@ One row per Dispatch, one paragraph per Gate. Kept by the Orchestrator; never co
 """
 
 
+def git(*args, cwd=None, check=True):
+    r = subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True)
+    if check and r.returncode != 0:
+        sys.exit(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r
+
+
 def repo_root():
-    try:
-        return subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
-    except subprocess.CalledProcessError:
+    """The main checkout, also when run from inside one of its Worktrees."""
+    r = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True,
+                       capture_output=True)
+    if r.returncode != 0:
         sys.exit("not inside a git repository: the skill needs one (git init first)")
+    return os.path.dirname(r.stdout.strip())
+
+
+def worktree_base(root):
+    return os.path.join(WORKTREES, f"{os.path.basename(root)}-{hashlib.sha1(root.encode()).hexdigest()[:8]}")
+
+
+def max_dispatches():
+    v = os.environ.get("MAX_DISPATCHES")
+    if v is None and os.path.exists(CONFIG):
+        for line in open(CONFIG):
+            k, _, val = line.strip().partition("=")
+            if k == "MAX_DISPATCHES":
+                v = val.strip().strip('"')
+    try:
+        return max(1, int(v or 1))
+    except ValueError:
+        sys.exit(f"MAX_DISPATCHES must be a whole number, got {v!r}")
+
+
+def number(path):
+    m = re.match(r"(\d+)", os.path.basename(path))
+    return int(m.group(1)) if m else 0
+
+
+def live_pid(path):
+    pid = 0
+    try:
+        pid = int(open(path).read().strip() or 0)
+        if pid:
+            os.kill(pid, 0)
+            return pid
+    except PermissionError:
+        return pid
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def claim(limit):
+    """Under a lock: forget claims whose process is gone, refuse past the limit, else take the next free
+    number. A number stays used afterwards through its log. Returns (n, pid file)."""
+    running = os.path.join(HYBRID, "running")
+    os.makedirs(running, exist_ok=True)
+    with open(os.path.join(running, ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        live = []
+        for f in glob.glob(os.path.join(running, "*.pid")):
+            if live_pid(f):
+                live.append(f)
+            else:
+                os.remove(f)
+        if len(live) >= limit:
+            sys.stderr.write(f"{len(live)} Dispatch(es) already running (MAX_DISPATCHES={limit}): "
+                             "wait for one to finish\n")
+            sys.exit(2)
+        n = max(map(number, glob.glob(os.path.join(HYBRID, "logs", "*.jsonl")) + live), default=0) + 1
+        pidfile = os.path.join(running, f"{n:02d}.pid")
+        with open(pidfile, "x") as f:
+            f.write(str(os.getpid()))
+        return n, pidfile
+
+
+def current_branch(root):
+    r = git("symbolic-ref", "--short", "-q", "HEAD", cwd=root, check=False)
+    if r.returncode != 0:
+        sys.exit(f"{root} is on a detached HEAD: check out the run branch (pi-dispatch.py init --branch ...)")
+    return r.stdout.strip()
+
+
+def find_row(n):
+    ledger = os.path.join(HYBRID, "dispatches.jsonl")
+    rows = [json.loads(line) for line in open(ledger)] if os.path.exists(ledger) else []
+    for r in reversed(rows):
+        if r["n"] == n and "worktree" in r:
+            return r
+    sys.exit(f"no finished Dispatch #{n} with a Worktree in {ledger}")
+
+
+def remove_worktree(root, path, branch):
+    if os.path.isdir(path):
+        git("worktree", "remove", "--force", path, cwd=root, check=False)
+        shutil.rmtree(path, ignore_errors=True)
+    git("worktree", "prune", cwd=root, check=False)
+    if branch:
+        git("branch", "-D", branch, cwd=root, check=False)
 
 
 def cmd_init(a):
@@ -63,12 +171,13 @@ def cmd_init(a):
         branches = subprocess.check_output(["git", "branch", "--list", a.branch], text=True).strip()
         subprocess.check_call(["git", "checkout", "-q"] + ([] if branches else ["-b"]) + [a.branch])
     print(f"{root}: {HYBRID}/ ready (excluded via .git/info/exclude)"
-          + (f", on branch {a.branch}" if a.branch else ""))
+          + (f", on branch {a.branch}" if a.branch else "")
+          + f"; Worktrees under {worktree_base(root)}; MAX_DISPATCHES={max_dispatches()}")
     return 0
 
 
 def run_pi(cwd, prompt, log_path, timeout, max_turns):
-    sessions = os.path.abspath(os.path.join(HYBRID, "pi-sessions"))  # pi resolves it against cwd
+    sessions = os.path.abspath(os.path.join(HYBRID, "pi-sessions"))  # in the main checkout, not the Worktree
     cmd = [PI, *PI_FLAGS, "--session-dir", sessions, prompt]
     t0, m0 = time.time(), time.monotonic()
     proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -152,28 +261,95 @@ def cmd_dispatch(a):
         sys.exit(f"{HYBRID}/ missing: run pi-dispatch.py init first")
     if not os.path.isfile(ticket):
         sys.exit(f"no such ticket: {a.ticket}")
+    run_branch = current_branch(root)
     name = os.path.splitext(os.path.basename(ticket))[0]
-    shutil.copyfile(ticket, os.path.join(HYBRID, "TICKET.md"))
-    ledger = os.path.join(HYBRID, "dispatches.jsonl")
-    n = sum(1 for _ in open(ledger)) + 1 if os.path.exists(ledger) else 1
-    log = os.path.join(HYBRID, "logs", f"{n:02d}-{name}.jsonl")
-    size = os.path.getsize(ticket)
-    print(f"dispatch #{n} {name}: max-turns {a.max_turns}, timeout {a.timeout}s, ticket {size} bytes", flush=True)
-    m = run_pi(root, UNATTENDED + POINTER, log, a.timeout, a.max_turns)
-    row = {"n": n, "ticket": name, "ticket_bytes": size, "max_turns": a.max_turns, "timeout": a.timeout,
-           "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - m["wall_s"])),
-           "ended": ended(m), "log": log, **m}
-    with open(ledger, "a") as f:
-        f.write(json.dumps(row) + "\n")
+    n, pidfile = claim(max_dispatches())
+    try:
+        base = git("rev-parse", "HEAD", cwd=root).stdout.strip()
+        branch = f"{run_branch}--{n:02d}-{name}"
+        wt = os.path.join(worktree_base(root), f"{n:02d}-{name}")
+        os.makedirs(os.path.dirname(wt), exist_ok=True)
+        remove_worktree(root, wt, None)  # a leftover of this path from an earlier run
+        git("worktree", "add", "-q", "-B", branch, wt, base, cwd=root)
+        os.makedirs(os.path.join(wt, HYBRID), exist_ok=True)
+        shutil.copyfile(ticket, os.path.join(wt, HYBRID, "TICKET.md"))
+        log = os.path.join(HYBRID, "logs", f"{n:02d}-{name}.jsonl")
+        size = os.path.getsize(ticket)
+        print(f"dispatch #{n} {name}: max-turns {a.max_turns}, timeout {a.timeout}s, ticket {size} bytes", flush=True)
+        print(f"worktree: {wt} (branch {branch}, from {run_branch} @ {base[:9]})", flush=True)
+        m = run_pi(wt, UNATTENDED + POINTER, log, a.timeout, a.max_turns)
+        row = {"n": n, "ticket": name, "ticket_bytes": size, "max_turns": a.max_turns, "timeout": a.timeout,
+               "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - m["wall_s"])),
+               "ended": ended(m), "log": log, "worktree": wt, "branch": branch, "run_branch": run_branch,
+               "base": base, **m}
+        with open(os.path.join(HYBRID, "dispatches.jsonl"), "a") as f:
+            f.write(json.dumps(row) + "\n")
+    finally:
+        os.remove(pidfile)
     if m["slept_s"] > 5:
         print(f"WARNING: the machine slept for {m['slept_s']:.0f}s during this Dispatch", flush=True)
     print(f"{ended(m).upper()} {m['wall_s']:.0f}s  calls={m['turns']} tools={m['tool_calls']} "
           f"think≈{m['thinking_tokens_est']}tok out={m['output_tokens']} ctx_max={m['ctx_max']} "
           f"compactions={m['compactions']}+{m['compaction_errors']}err length_stops={m['length_stops']}")
     print(f"log: {log}")
+    print(f"worktree: {wt} — run the Gate there, commit the accepted files there, then: pi-dispatch.py land {n}")
     print("--- result ---")
     print(m["result"][: a.result_chars] + ("…" if len(m["result"]) > a.result_chars else ""))
     return 0 if ended(m) == "finished" else 1
+
+
+def cmd_land(a):
+    root = repo_root()
+    os.chdir(root)
+    r = find_row(a.n)
+    if current_branch(root) != r["run_branch"]:
+        sys.exit(f"{root} is not on the run branch {r['run_branch']}")
+    if git("status", "--porcelain", "--untracked-files=no", cwd=root).stdout.strip():
+        sys.exit(f"{root} has uncommitted changes: commit or stash them before landing")
+    if not os.path.isdir(r["worktree"]):
+        sys.exit(f"Dispatch #{a.n}'s Worktree is gone ({r['worktree']})")
+    if git("status", "--porcelain", "--untracked-files=no", cwd=r["worktree"]).stdout.strip():
+        sys.exit("the Worktree has uncommitted changes: commit the accepted files there and revert the rest")
+    commits = git("rev-list", "--reverse", f"{r['base']}..{r['branch']}", cwd=root).stdout.split()
+    if not commits:
+        print(f"nothing to land: no commits on {r['branch']} since {r['base'][:9]}")
+        return 1
+    if git("cherry-pick", *commits, cwd=root, check=False).returncode != 0:
+        git("cherry-pick", "--abort", cwd=root, check=False)
+        print(f"CONFLICT landing #{a.n} on {r['run_branch']}: aborted, the run branch is unchanged and the "
+              f"Worktree is kept. pi-dispatch.py drop {a.n}, then re-Dispatch the Ticket from the current HEAD.")
+        return 3
+    remove_worktree(root, r["worktree"], r["branch"])
+    head = git("rev-parse", "--short", "HEAD", cwd=root).stdout.strip()
+    print(f"LANDED #{a.n}: {len(commits)} commit(s) on {r['run_branch']}, now {head}; Worktree removed. "
+          f"Run the toolchain here; if it fails: git reset --hard HEAD~{len(commits)}")
+    return 0
+
+
+def cmd_drop(a):
+    root = repo_root()
+    os.chdir(root)
+    r = find_row(a.n)
+    remove_worktree(root, r["worktree"], r["branch"])
+    print(f"dropped #{a.n}: {r['worktree']} and {r['branch']}")
+    return 0
+
+
+def cmd_clean(a):
+    root = repo_root()
+    os.chdir(root)
+    base = worktree_base(root)
+    busy = {number(f) for f in glob.glob(os.path.join(HYBRID, "running", "*.pid")) if live_pid(f)}
+    dropped = 0
+    for block in git("worktree", "list", "--porcelain", cwd=root).stdout.strip().split("\n\n"):
+        f = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
+        path, branch = f.get("worktree", ""), f.get("branch", "")
+        if path.startswith(base + os.sep) and number(path) not in busy:
+            remove_worktree(root, path, branch[len("refs/heads/"):] if branch.startswith("refs/heads/") else None)
+            dropped += 1
+    git("worktree", "prune", cwd=root, check=False)
+    print(f"dropped {dropped} Worktree(s); {len(busy)} Dispatch(es) still running")
+    return 0
 
 
 def cmd_ledger(a):
@@ -198,6 +374,9 @@ def main():
     p = sub.add_parser("dispatch"); p.add_argument("ticket")
     p.add_argument("--max-turns", type=int, default=40); p.add_argument("--timeout", type=int, default=1200)
     p.add_argument("--result-chars", type=int, default=4000); p.set_defaults(fn=cmd_dispatch)
+    p = sub.add_parser("land"); p.add_argument("n", type=int); p.set_defaults(fn=cmd_land)
+    p = sub.add_parser("drop"); p.add_argument("n", type=int); p.set_defaults(fn=cmd_drop)
+    p = sub.add_parser("clean"); p.set_defaults(fn=cmd_clean)
     p = sub.add_parser("ledger"); p.set_defaults(fn=cmd_ledger)
     a = ap.parse_args()
     sys.exit(a.fn(a))

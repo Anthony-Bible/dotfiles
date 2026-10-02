@@ -5,10 +5,14 @@
 # skill's preflight.
 #
 # Config  ~/.config/pi-implementer/env   KEY=VALUE lines, the same names as local-model-beast's .env:
-#           LLAMA_URL       http://192.168.86.55:8080   the Server (no /v1)
+#           LLAMA_URL       http://100.67.39.76:8080    the Server (no /v1)
 #           LLAMA_API_KEY   ...                          the Server's API key
-#           MODEL_ALIAS     qwen3.8-3.6-27b-blend        the Server's --alias
-#           CTX_SIZE        65536                        the Server's context window
+#           MODEL_ALIAS     qwen3.8-27b-aggressive       the Server's --alias (in router mode: a Preset name;
+#                                                        use the Server's default one, or every Dispatch swaps)
+#           CTX_SIZE        43690                        each Dispatch's window: the Server's KV pool divided by
+#                                                        MAX_DISPATCHES (131072 / 3 on a PARALLEL=3 Server)
+#           MAX_DISPATCHES  3                            Dispatches allowed at once (default 1); never more than
+#                                                        the Server's slots, or the extra ones queue and time out
 #           MAX_OUTPUT_TOKENS 16384  RESERVE_TOKENS 16384  (optional; raise both together)
 #         Environment variables of the same names override the file.
 # State   ~/.config/pi-implementer/agent  (PI_CODING_AGENT_DIR): models.json is regenerated on every
@@ -55,7 +59,7 @@ load_config() {
   BASE="${LLAMA_URL:-}"
   KEY="${LLAMA_API_KEY:-}"
   MODEL="${MODEL_ALIAS:-}"
-  CTX="${CTX_SIZE:-65536}"
+  CTX="${CTX_SIZE:-43690}"
   MAX_OUT="${MAX_OUTPUT_TOKENS:-16384}"
   RESERVE="${RESERVE_TOKENS:-16384}"
 }
@@ -63,23 +67,25 @@ load_config() {
 write_config() {
   if [ ! -t 0 ]; then
     echo "no config at $CONFIG and stdin is not a terminal; write it by hand:" >&2
-    printf '  LLAMA_URL=http://192.168.86.55:8080\n  LLAMA_API_KEY=...\n  MODEL_ALIAS=qwen3.8-3.6-27b-blend\n  CTX_SIZE=65536\n' >&2
+    printf '  LLAMA_URL=http://100.67.39.76:8080\n  LLAMA_API_KEY=...\n  MODEL_ALIAS=qwen3.8-27b-aggressive\n  CTX_SIZE=43690\n  MAX_DISPATCHES=3\n' >&2
     return 1
   fi
-  read -r -p "Server URL [http://192.168.86.55:8080]: " u; u="${u:-http://192.168.86.55:8080}"
+  read -r -p "Server URL [http://100.67.39.76:8080]: " u; u="${u:-http://100.67.39.76:8080}"
   read -r -p "Server API key: " k
-  read -r -p "Model alias [qwen3.8-3.6-27b-blend]: " m; m="${m:-qwen3.8-3.6-27b-blend}"
-  read -r -p "Context size [65536]: " c; c="${c:-65536}"
+  read -r -p "Model alias [qwen3.8-27b-aggressive]: " m; m="${m:-qwen3.8-27b-aggressive}"
+  read -r -p "Dispatches at once [3]: " d; d="${d:-3}"
+  read -r -p "Context size per Dispatch [$((131072 / d))]: " c; c="${c:-$((131072 / d))}"
   umask 077
-  printf 'LLAMA_URL=%s\nLLAMA_API_KEY=%s\nMODEL_ALIAS=%s\nCTX_SIZE=%s\n' "$u" "$k" "$m" "$c" > "$CONFIG"
+  printf 'LLAMA_URL=%s\nLLAMA_API_KEY=%s\nMODEL_ALIAS=%s\nCTX_SIZE=%s\nMAX_DISPATCHES=%s\n' "$u" "$k" "$m" "$c" "$d" > "$CONFIG"
   echo "wrote $CONFIG"
 }
 
 write_models_json() {
   mkdir -p "$AGENT_DIR"
   # The Server as an OpenAI-compatible provider. reasoning_effort is not sent: the Server's own
-  # default decides, as it does for every other Harness.
-  cat > "$AGENT_DIR/models.json" <<JSON
+  # default decides, as it does for every other Harness. Written to a temp file and renamed: parallel
+  # Dispatches launch together, and one pi must never read another launch's half-written file.
+  cat > "$AGENT_DIR/models.json.$$" <<JSON
 {
   "providers": {
     "local": {
@@ -95,24 +101,29 @@ write_models_json() {
   }
 }
 JSON
+  mv -f "$AGENT_DIR/models.json.$$" "$AGENT_DIR/models.json"
 }
 
 sync_settings() {
   # Written once so `pi install` can keep adding to it; the compaction reserve follows the config on
   # every launch. defaultProjectTrust never: -p runs must not load project-local .pi/ files from a
   # workspace the Model writes to.
-  [ -f "$AGENT_DIR/settings.json" ] || cat > "$AGENT_DIR/settings.json" <<'JSON'
+  [ -f "$AGENT_DIR/settings.json" ] || cat > "$AGENT_DIR/settings.json.$$" <<'JSON'
 {
   "defaultProjectTrust": "never",
   "quietStartup": true,
   "compaction": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }
 }
 JSON
+  [ -f "$AGENT_DIR/settings.json.$$" ] && mv -f "$AGENT_DIR/settings.json.$$" "$AGENT_DIR/settings.json"
   python3 - "$AGENT_DIR/settings.json" "$RESERVE" <<'PY'
-import json, sys
+import json, os, sys
 p, n = sys.argv[1], int(sys.argv[2]); s = json.load(open(p))
-s.setdefault("compaction", {})["reserveTokens"] = n
-json.dump(s, open(p, "w"), indent=2)
+if s.get("compaction", {}).get("reserveTokens") != n:
+    s.setdefault("compaction", {})["reserveTokens"] = n
+    tmp = f"{p}.{os.getpid()}"
+    json.dump(s, open(tmp, "w"), indent=2)
+    os.replace(tmp, p)
 PY
   [ -f "$AGENT_DIR/pi-vcc-config.json" ] || cat > "$AGENT_DIR/pi-vcc-config.json" <<'JSON'
 { "overrideDefaultCompaction": true, "smartKeepTail": true, "continueAfterThresholdCompact": true, "debug": false }
@@ -144,7 +155,7 @@ case "${1:-}" in
     [ -d "$AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" ] && echo "pi-vcc:  $AGENT_DIR/npm/node_modules/@sting8k/pi-vcc" || { echo "pi-vcc:  missing (run --setup)" >&2; ok=1; }
     load_config
     if [ -n "$BASE" ] && [ -n "$KEY" ] && [ -n "$MODEL" ]; then
-      echo "config:  $CONFIG -> $MODEL at $BASE, ctx $CTX, out $MAX_OUT, reserve $RESERVE"
+      echo "config:  $CONFIG -> $MODEL at $BASE, ctx $CTX, out $MAX_OUT, reserve $RESERVE, ${MAX_DISPATCHES:-1} at once"
       curl -fsS -m 5 "$BASE/health" >/dev/null && echo "server:  healthy" || { echo "server:  $BASE/health not reachable" >&2; ok=1; }
     else
       echo "config:  $CONFIG missing or incomplete (run --setup)" >&2; ok=1
