@@ -1,6 +1,6 @@
 # Ticket format
 
-A Ticket is the whole world of one Dispatch: the Implementer (a ~27B local Model in a 64K context, through
+A Ticket is the whole world of one Dispatch: the Implementer (a ~27B local Model in a ~44K context, through
 pi with the pi-vcc extension and the tools `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) sees this
 file, the repository on disk, and nothing else — no conversation, no earlier Tickets, no CLAUDE.md, no
 skills, nobody to ask. Every fact it would otherwise go and look up costs a tool call and context; every
@@ -65,8 +65,10 @@ not name.
 
 ## Rules that came from failures
 
-- **Exact paths from the repo root, always.** A brief that said "package `beast_bakery/`" and then listed
-  bare filenames cost six reads of paths that did not exist.
+- **Exact paths from the repo root, always, and always relative.** A brief that said "package
+  `beast_bakery/`" and then listed bare filenames cost six reads of paths that did not exist. Never an
+  absolute path: the Implementer runs in a Worktree, and `/Users/.../repo/x.go` would edit the main
+  checkout behind every Gate's back.
 - **Put every fact in the Ticket, verbatim.** A Ticket that dropped the POST body shape grepped five
   times; the same Ticket with it explored nothing. Signatures, table columns, route strings, error
   messages, fixture values: copy them from the code, quote them, say they are exact.

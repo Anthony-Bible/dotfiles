@@ -13,7 +13,7 @@
       "name": "dotfiles-dev-tools",
       "source": "./claude-plugin",
       "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, grill-with-docs, pi-implementer (a local model implements Tickets through pi + pi-vcc under Claude Code's supervision), and second-opinion (Muse Code reviews Diffs and Plans read-only; Claude verifies and rebuts)",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "author": {
         "name": "Anthony Bible"
       },
