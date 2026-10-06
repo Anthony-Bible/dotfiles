@@ -8,6 +8,14 @@
 // Dispatch fates the board notices add or take points; the status line shows the score, and a toast written
 // by a small model in the System's voice announces each award.
 //
+// Podman Guard: a Bash line that runs `docker` runs `podman` instead, with a note the model reads; a Daemon-Only
+// Command is refused; a DOCKER_OK=1 line passes untouched.
+//
+// TDD Band: above the prompt, the TDD Phase that TDD subagents and Checks lead to, with buttons that draft a
+// prompt for each TDD subagent. /tdd shows or hides it.
+//
+// The System's voice: Spinner Words in the terminal, and a Verdict under each Notable Turn's answer.
+//
 // Every use of `$` lives in this file (the engine follows `$` into this file's functions, never across an
 // import); the rules are in ../mods/board.ts and ../mods/points.ts.
 
@@ -33,6 +41,7 @@ import {
   apply,
   bashAwards,
   cleanQuip,
+  compactAward,
   dispatchAward,
   errorAward,
   fallbackToast,
@@ -41,14 +50,28 @@ import {
   statusLine,
   type Award,
   type Fate,
+  type Usage,
 } from '../mods/points'
-import type { BoardRowState, BoardState, CrawlerScore } from '../types'
+import { guard, rewriteNote } from '../mods/podman'
+import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
+import {
+  fallbackVerdict,
+  isNotable,
+  moodOf,
+  spinnerWord,
+  VERDICT_SYSTEM,
+  verdictLine,
+  verdictPrompt,
+  type TurnStats,
+} from '../mods/voice'
+import type { BoardRowState, BoardState, CrawlerScore, TddState } from '../types'
 
 // ---------------------------------------------------------------------------------------------- state
 
 const board = atom({ plugin: 'dotfiles-dev-tools', key: 'board' } as const, null)
 const score = atom({ plugin: 'dotfiles-dev-tools', key: 'score' } as const, { session: 0, streak: 0 })
 const allTime = atom({ plugin: 'dotfiles-dev-tools', key: 'allTime' } as const, 0)
+const tdd = atom({ plugin: 'dotfiles-dev-tools', key: 'tdd' } as const, initialTdd as TddState)
 
 const PANE = 'dispatch-board'
 const TITLE = 'Dispatch Board'
@@ -62,6 +85,8 @@ const QUIP_GAP_MS = 8000
 const TOAST_MS = 6000
 /** A model-written quip is a full sentence of up to 140 characters: it stays long enough to read. */
 const QUIP_TOAST_MS = 15000
+/** The answer's line waits on the Verdict, so its model call gets less time than a toast's quip. */
+const VERDICT_TIMEOUT_MS = 5000
 
 type Watch = {
   root: string
@@ -84,6 +109,12 @@ let isTicking = false
 let hasChecked = false
 let isQuipBusy = false
 let quipAt = -Infinity
+/** The session's usage as the last `session.measure` reported it, for the HUD. */
+let usage: Usage | undefined
+/** The main loop's turn in progress: what it scored and how many tool calls it made; undefined between turns. */
+let turn: Omit<TurnStats, 'durationMs'> | undefined
+/** This turn's Spinner Word, picked once at its start so the spinner does not flicker between words. */
+let spinner: string | undefined
 
 // ------------------------------------------------------------------------------------- Dispatch Board
 
@@ -282,10 +313,14 @@ const stats = (row: BoardRowState, ctxLimit?: number): string =>
     .filter(Boolean)
     .join('  ')
 
+const TDD_ICON = { RED: '🔴', GREEN: '🟢', REFACTOR: '🔧' } as const
+const TDD_COLOR = { RED: 'red', GREEN: 'green', REFACTOR: 'cyan', NONE: 'gray' } as const
+const MOOD_COLOR = { good: 'green', bad: 'red', waiting: 'gray' } as const
+
 // -------------------------------------------------------------------------------------- Crawler Points
 
 async function showScore($: EngineInterface): Promise<void> {
-  $.ui.status(statusLine(await read($, score), await read($, allTime)))
+  $.ui.status(statusLine(await read($, score), await read($, allTime), usage))
 }
 
 /** Toasts the award: a model-written line when one is allowed and arrives, the plain line otherwise. */
@@ -320,6 +355,7 @@ async function announce(
 }
 
 async function award($: EngineInterface, a: Award): Promise<void> {
+  if (turn) turn = { ...turn, points: turn.points + a.points, events: [...turn.events, a.event] }
   const after = await update($, score, s => apply(s, a))
   const total = await update($, allTime, t => t + a.points)
   await $.store.set(STORE_ALL_TIME, total)
@@ -338,7 +374,34 @@ async function startPoints($: EngineInterface): Promise<void> {
   const stored = Number((await $.store.get(STORE_ALL_TIME)) ?? 0)
   await update($, allTime, () => (Number.isFinite(stored) ? stored : 0))
   hasChecked = false
+  const u = await $.session.usage()
+  usage = { contextPercent: u.context.percent, usd: u.cost?.usd, rateLimits: u.rateLimits }
   await showScore($)
+}
+
+// ------------------------------------------------------------------------------------------- the voice
+
+/** The Verdict for a Notable Turn: a model-written line when the quip writer is free, the plain one otherwise. */
+async function verdict($: EngineInterface, stats: TurnStats): Promise<string> {
+  if (isQuipBusy) return verdictLine(fallbackVerdict(stats), stats, false)
+  isQuipBusy = true
+  quipAt = await $.clock.now()
+  try {
+    const r = await $.model.complete({
+      model: QUIP_MODEL,
+      system: VERDICT_SYSTEM,
+      prompt: verdictPrompt(stats),
+      maxTokens: 80,
+      effort: 'low',
+      timeoutMs: VERDICT_TIMEOUT_MS,
+    })
+    const line = r.isAnswered ? cleanQuip(r.text) : undefined
+    return line ? verdictLine(line, stats, true) : verdictLine(fallbackVerdict(stats), stats, false)
+  } catch {
+    return verdictLine(fallbackVerdict(stats), stats, false)
+  } finally {
+    isQuipBusy = false
+  }
 }
 
 // ------------------------------------------------------------------------------------------------ hooks
@@ -347,7 +410,100 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await startPoints($)
     await startBoard($)
+    await $.command.register({ name: 'tdd', description: 'Show or hide the TDD Band above the prompt' })
     return next(e)
+  })
+
+  // ------------------------------------------------------------------------------------- Podman Guard
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const g = guard(e.command)
+    if (g.kind === 'pass') return next(e)
+    if (g.kind === 'deny') return { deny: g.reason }
+    const ran = await next({ ...e, command: g.command })
+    if (ran.deny !== undefined) return ran
+    return { ...ran, context: [...(ran.context ?? []), rewriteNote(e.command, g.command)] }
+  }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
+
+  // ----------------------------------------------------------------------------------------------- HUD
+
+  on('session.measure', async ($, e, next) => {
+    usage = { contextPercent: e.context.percent, usd: e.cost?.usd, rateLimits: e.rateLimits }
+    await showScore($)
+    return next(e)
+  })
+
+  on('session.compact', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agentId || r.skip !== undefined) return r
+    const a = compactAward(e.trigger, usage?.contextPercent)
+    if (a) await award($, a)
+    return r
+  }).catch(($, e, next) => next(e))
+
+  // ------------------------------------------------------------------------------------------ TDD Band
+
+  on('agent.spawn', async ($, e, next) => {
+    await update($, tdd, t => onAgent(t, e.subagentType))
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('command.run', { command: 'tdd' }, async $ => {
+    const t = await update($, tdd, toggle)
+    return { text: `TDD Band ${isShown(t) ? 'shown' : 'hidden'}.` }
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const t = await read($, tdd)
+    if (e.props.hasSurvey || !isShown(t)) return next(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const v = verdictOf(t)
+    return (
+      <Box gap={1}>
+        <Text bold color={TDD_COLOR[t.phase ?? 'NONE']}>
+          {t.phase ? `${TDD_ICON[t.phase]} ${t.phase}` : '· TDD'}
+        </Text>
+        <Text color={MOOD_COLOR[v.mood]} wrap="truncate-end">
+          {v.note}
+        </Text>
+        {DRAFTS.map(d => (
+          <Button
+            key={d.hotkey}
+            hotkey={d.hotkey}
+            label={d.label}
+            plain
+            onPress={() => void $.prompt.fill({ text: d.draft }).catch(() => undefined)}
+          />
+        ))}
+      </Box>
+    )
+  })
+
+  // ------------------------------------------------------------------------------------------ the voice
+
+  on('turn.start', async ($, e, next) => {
+    turn = { toolCalls: 0, points: 0, events: [] }
+    const mood = moodOf({
+      contextPercent: usage?.contextPercent,
+      debuff: (await read($, score)).debuff,
+      isDispatching: (watch?.running.size ?? 0) > 0,
+    })
+    spinner = spinnerWord(mood, Math.random())
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) =>
+    e.surface === 'terminal' && spinner ? next({ ...e, props: { ...e.props, word: spinner } }) : next(e),
+  )
+
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    const stats = turn && { ...turn, durationMs: e.durationMs }
+    if (e.agentId) return r
+    turn = undefined
+    spinner = undefined
+    if (!stats || e.reason !== 'answer' || !isNotable(stats)) return r
+    return { ...r, text: await verdict($, stats) }
   })
 
   on('command.run', { command: 'dispatches' }, async $ => {
@@ -387,6 +543,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (turn && !e.agentId) turn = { ...turn, toolCalls: turn.toolCalls + 1 }
     const ran = await next(e)
     const isDenied = ran.deny !== undefined
     if (e.tool === 'Bash') {
@@ -397,7 +554,11 @@ export const register: Register = on => {
         return ran
       }
       for (const a of bashAwards(e.command, ran.isError === true, await read($, score), !hasChecked)) {
-        if (a.isGreen !== undefined) hasChecked = true
+        if (a.isGreen !== undefined) {
+          hasChecked = true
+          const isGreen = a.isGreen
+          await update($, tdd, t => onCheck(t, isGreen))
+        }
         await award($, a)
       }
       return ran

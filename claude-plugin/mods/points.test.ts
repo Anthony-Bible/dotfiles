@@ -1,6 +1,19 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { apply, bashAwards, classify, cleanQuip, level, statusLine, type Award, type Score } from './points'
+import {
+  apply,
+  bashAwards,
+  classify,
+  cleanQuip,
+  compactAward,
+  hottestLimit,
+  level,
+  RATE_LIMIT_SHOWN_FROM,
+  RETREAT_BELOW,
+  statusLine,
+  type Award,
+  type Score,
+} from './points'
 
 // A small seeded generator, so a failing case reproduces.
 const rng = (seed: number) => () => {
@@ -154,5 +167,52 @@ describe('cleanQuip', () => {
       }
     }
     expect(cleanQuip('  \n \n')).toBeUndefined()
+  })
+})
+
+describe('the HUD shows usage', () => {
+  const KINDS = ['five_hour', 'seven_day', 'spend_limit']
+
+  test('only the fullest rate-limit window shows, and only from RATE_LIMIT_SHOWN_FROM', () => {
+    const r = rng(7)
+    for (let i = 0; i < RUNS; i++) {
+      const limits = KINDS.filter(() => r() < 0.7).map(kind => ({ kind, percentUsed: Math.round(r() * 1000) / 10 }))
+      const shown = hottestLimit(limits)
+      const max = Math.max(-1, ...limits.map(l => l.percentUsed))
+      if (max < RATE_LIMIT_SHOWN_FROM) expect(shown).toBeUndefined()
+      else expect(shown?.endsWith(`${Math.round(max)}%`)).toBe(true)
+    }
+  })
+
+  test('context, the hottest window and cost follow the score, each only when known', () => {
+    const score = { session: 40, streak: 0 }
+    expect(statusLine(score, 0, { rateLimits: [] })).toBe('🎟 40 CP · Lv 1')
+    expect(
+      statusLine(score, 0, {
+        contextPercent: 61.6,
+        usd: 4.123,
+        rateLimits: [
+          { kind: 'five_hour', percentUsed: 71 },
+          { kind: 'seven_day', percentUsed: 55 },
+        ],
+      }),
+    ).toBe('🎟 40 CP · Lv 1 · ctx 62% · 5h 71% · $4.12')
+  })
+})
+
+describe('compactAward', () => {
+  test('a Dungeon Collapse always costs; a manual compaction earns only below RETREAT_BELOW', () => {
+    const r = rng(8)
+    for (let i = 0; i < RUNS; i++) {
+      const pct = r() < 0.1 ? undefined : r() * 100
+      const auto = compactAward('auto', pct)
+      expect(auto?.points).toBeLessThan(0)
+      expect(auto?.debuff).toBe('Amnesia')
+      const manual = compactAward('manual', pct)
+      if (pct !== undefined && pct < RETREAT_BELOW) expect(manual?.achievement).toBe('Strategic Retreat')
+      else expect(manual).toBeUndefined()
+      expect(compactAward('plugin', pct)).toBeUndefined()
+      expect(compactAward('precompute', pct)).toBeUndefined()
+    }
   })
 })
