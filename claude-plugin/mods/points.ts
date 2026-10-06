@@ -138,15 +138,57 @@ export const apply = (score: Score, award: Award): Score => ({
 /** Level from all-time points: 1 below 100, then one more at each square of ten (100, 400, 900, ...). */
 export const level = (allTime: number): number => Math.floor(Math.sqrt(Math.max(0, allTime) / 100)) + 1
 
-export const statusLine = (score: Score, allTime: number): string =>
+/** What the HUD shows of the session's usage, as `session.measure` and `$.session.usage()` report it. */
+export type Usage = {
+  /** How full the context window is, 0 to 100; absent before the first response. */
+  contextPercent?: number
+  usd?: number
+  rateLimits: readonly { kind: string; percentUsed: number }[]
+}
+
+/** A rate-limit window is shown from this much used, and only the fullest one. */
+export const RATE_LIMIT_SHOWN_FROM = 50
+
+const WINDOW_NAMES: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
+
+/** The fullest rate-limit window once it reaches RATE_LIMIT_SHOWN_FROM, as the HUD names it. */
+export const hottestLimit = (rateLimits: Usage['rateLimits']): string | undefined => {
+  const hot = rateLimits
+    .filter(l => l.percentUsed >= RATE_LIMIT_SHOWN_FROM)
+    .reduce<Usage['rateLimits'][number] | undefined>((a, l) => (!a || l.percentUsed > a.percentUsed ? l : a), undefined)
+  return hot && `${WINDOW_NAMES[hot.kind] ?? hot.kind} ${Math.round(hot.percentUsed)}%`
+}
+
+export const statusLine = (score: Score, allTime: number, usage?: Usage): string =>
   [
     `🎟 ${score.session.toLocaleString('en-US')} CP`,
     `Lv ${level(allTime)}`,
     score.streak > 0 ? `🔥${score.streak}` : undefined,
     score.debuff ? `Debuff: ${score.debuff}` : undefined,
+    usage?.contextPercent !== undefined ? `ctx ${Math.round(usage.contextPercent)}%` : undefined,
+    usage ? hottestLimit(usage.rateLimits) : undefined,
+    usage?.usd !== undefined ? `$${usage.usd.toFixed(2)}` : undefined,
   ]
     .filter(Boolean)
     .join(' · ')
+
+/** A manual compaction counts as a Strategic Retreat below this much context. */
+export const RETREAT_BELOW = 90
+
+/**
+ * The award for a compaction of the main conversation: a Dungeon Collapse (automatic) costs, a Strategic Retreat
+ * (manual, below RETREAT_BELOW) earns, and anything else, or a manual one whose fill is unknown, scores nothing.
+ */
+export const compactAward = (trigger: string, contextPercent: number | undefined): Award | undefined =>
+  trigger === 'auto'
+    ? { points: -50, event: 'let the dungeon collapse: Claude Code compacted the context itself', debuff: 'Amnesia' }
+    : trigger === 'manual' && contextPercent !== undefined && contextPercent < RETREAT_BELOW
+      ? {
+          points: 20,
+          event: `compacted at ${Math.round(contextPercent)}% context, before the ceiling came down`,
+          achievement: 'Strategic Retreat',
+        }
+      : undefined
 
 const signed = (n: number): string => (n >= 0 ? `+${n}` : `−${-n}`)
 

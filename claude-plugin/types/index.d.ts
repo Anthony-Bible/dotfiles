@@ -26,12 +26,20 @@ export type CrawlerScore = {
   debuff?: string
 }
 
+export type TddState = {
+  phase?: 'RED' | 'GREEN' | 'REFACTOR'
+  lastCheck?: boolean
+  isAgentLed: boolean
+  visibility: 'auto' | 'shown' | 'hidden'
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'dotfiles-dev-tools': {
       board: BoardState | null
       score: CrawlerScore
       allTime: number
+      tdd: TddState
     }
   }
 }
