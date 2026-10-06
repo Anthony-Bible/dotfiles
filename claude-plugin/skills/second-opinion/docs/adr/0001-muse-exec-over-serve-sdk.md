@@ -10,8 +10,9 @@ conversation memory across invocations, which is all the one Rebuttal needs, and
 The allowlist doesn't survive the switch, and it wouldn't have been enough anyway. Testing showed that
 `--disable-write` blocks only the edit tools: shell commands still write to the workspace, and no approval
 prompt fires. So isolation doesn't come from policy. It comes from where the Reviewer runs: a dangling
-snapshot commit of the working tree (built through a temporary index) checked out in a throwaway worktree
-(`-w create --worktree-base`).
+snapshot commit of the working tree (built through a temporary index) checked out in a throwaway worktree.
+The script creates that worktree itself (`git worktree add --detach`) and passes it with `-w existing`: from
+muse 1.4.3 on, muse's own sandbox refuses to create `.git/worktrees/` entries, which broke `-w create`.
 
 ## Considered Options
 
