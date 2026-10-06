@@ -22,6 +22,10 @@ const DOCKER: readonly (readonly [string, string])[] = [
   ['sudo -u root docker ps -a', 'sudo -u root podman ps -a'],
   ['env -u HOME docker info', 'env -u HOME podman info'],
   ['xargs -I {} docker rm {}', 'xargs -I {} podman rm {}'],
+  ['sudo --user root docker ps', 'sudo --user root podman ps'],
+  ['watch -d docker ps', 'watch -d podman ps'],
+  ['docker run -e DOCKER_OK=1 alpine', 'podman run -e DOCKER_OK=1 alpine'],
+  ['docker run alpine cat /docs/docker.sock', 'podman run alpine cat /docs/docker.sock'],
 ]
 // Lines that mention docker without running it, and lines that never mention it.
 const QUIET = [
@@ -35,6 +39,7 @@ const QUIET = [
   'mydocker run',
   'sudo -u docker whoami',
   'echo "see the docker.sock docs"',
+  'echo `date` docker run',
 ]
 const SEPARATORS = [' && ', ' || ', '; ', ' | ', '\n']
 
@@ -84,6 +89,9 @@ describe('guard', () => {
       'docker --log-level=debug stack ls',
       'docker run -v "/var/run/docker.sock:/s" alpine',
       'docker run -v $(pwd):/w -v /var/run/docker.sock:/s alpine',
+      'docker run --volume=/var/run/docker.sock:/s alpine',
+      'docker run --mount type=bind,src=/var/run/docker.sock,dst=/s alpine',
+      'docker -H unix:///var/run/docker.sock ps',
     ]
     for (const line of lines) {
       const g = guard(line)
@@ -94,5 +102,12 @@ describe('guard', () => {
 
   test('docker inside a command substitution is still a command', () => {
     expect(guard('echo $(docker ps -q)')).toEqual({ kind: 'rewrite', command: 'echo $(podman ps -q)' })
+    expect(guard('echo `docker ps -q`')).toEqual({ kind: 'rewrite', command: 'echo `podman ps -q`' })
+  })
+
+  test('the Escape Hatch counts only as an assignment, before the command or exported', () => {
+    for (const line of ['DOCKER_OK=1 docker context ls', 'export DOCKER_OK=1; docker context ls', 'sudo DOCKER_OK=1 docker swarm init'])
+      expect(guard(line)).toEqual({ kind: 'pass' })
+    expect(guard('docker context ls -e DOCKER_OK=1').kind).toBe('deny')
   })
 })

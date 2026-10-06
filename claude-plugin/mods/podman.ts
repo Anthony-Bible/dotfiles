@@ -16,13 +16,23 @@ export const DAEMON_ONLY = ['context', 'swarm', 'service', 'stack', 'node', 'plu
 const WRAPPERS = new Set(['sudo', 'env', 'time', 'nohup', 'exec', 'command', 'xargs', 'watch'])
 /** A wrapper's flags that take the next word as their value, as in `sudo -u root docker`. */
 const WRAPPER_VALUE_FLAGS: Record<string, ReadonlySet<string>> = {
-  sudo: new Set(['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-U']),
-  env: new Set(['-u', '-C', '-S']),
-  time: new Set(['-f', '-o']),
-  xargs: new Set(['-I', '-L', '-n', '-P', '-d', '-E', '-s', '-a']),
-  watch: new Set(['-n', '-d']),
+  sudo: new Set([
+    ...['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-R', '-t', '-T', '-U'],
+    ...['--user', '--group', '--close-from', '--chdir', '--host', '--prompt', '--role', '--chroot', '--type'],
+    ...['--command-timeout', '--other-user'],
+  ]),
+  env: new Set(['-u', '-C', '-S', '--unset', '--chdir', '--split-string']),
+  time: new Set(['-f', '-o', '--format', '--output']),
+  xargs: new Set([
+    ...['-I', '-L', '-n', '-P', '-d', '-E', '-s', '-a'],
+    ...['--max-lines', '--max-args', '--max-procs', '--delimiter', '--max-chars', '--arg-file', '--process-slot-var'],
+  ]),
+  // `watch -d` takes its optional value attached (`-d=permanent`), never as the next word.
+  watch: new Set(['-n', '--interval']),
 }
 /** Docker's global options that take the next word as their value, ahead of the subcommand. */
+/** The options whose value mounts or dials a daemon socket, as in `-v /var/run/docker.sock:/s` or `-H unix://...`. */
+const SOCKET_FLAGS = new Set(['-v', '--volume', '--mount', '-H', '--host'])
 const DOCKER_VALUE_FLAGS = new Set(['--config', '-c', '--context', '-H', '--host', '-l', '--log-level', '--tlscacert', '--tlscert', '--tlskey'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
@@ -44,6 +54,7 @@ export const words = (line: string): Word[] => {
   /** The wrapper whose flags are being read, and whether the word now is one flag's value. */
   let wrapper: string | undefined
   let expectsValue = false
+  let inBacktick = false
   const end = (at: number) => {
     if (start < 0) return
     const isCommand = expectsCommand && !expectsValue
@@ -80,7 +91,9 @@ export const words = (line: string): Word[] => {
     } else if (';&|\n()`'.includes(c) || (c === '$' && line[i + 1] === '(')) {
       end(i)
       if (c === '$') i++
-      expectsCommand = c !== ')'
+      // A backtick opens a substitution or closes one; only the opening one starts a command.
+      if (c === '`') inBacktick = !inBacktick
+      expectsCommand = c === '`' ? inBacktick : c !== ')'
       startsCommand = ';&|\n'.includes(c)
       wrapper = undefined
       expectsValue = false
@@ -93,7 +106,13 @@ export const words = (line: string): Word[] => {
   return out
 }
 
-const hasHatch = (ws: readonly Word[]): boolean => ws.some(w => w.text === ESCAPE_HATCH)
+/** The Escape Hatch as an assignment: before a command (`DOCKER_OK=1 docker ...`) or exported; never an argument. */
+const hasHatch = (ws: readonly Word[]): boolean =>
+  ws.some((w, i) => w.text === ESCAPE_HATCH && (w.isCommand || (ws[i - 1]?.isCommand === true && ws[i - 1]?.text === 'export')))
+
+/** The option a word sets with its value attached, `--volume=...` or `-v/var/...`; undefined for anything else. */
+const attachedFlag = (text: string): string | undefined =>
+  text.startsWith('--') ? (text.includes('=') ? text.slice(0, text.indexOf('=')) : undefined) : text.startsWith('-') && text.length > 2 ? text.slice(0, 2) : undefined
 
 /**
  * What the guard does with a Bash line: pass it when it runs no Docker or carries the Escape Hatch, deny a
@@ -111,7 +130,13 @@ export const guard = (line: string): Guarded => {
     .filter(({ w }) => w.text === 'docker')
     .map(({ args }) => subcommandOf(args))
     .find(sub => sub !== undefined && (DAEMON_ONLY as readonly string[]).includes(sub))
-  const mountsSocket = dockers.some(({ args }) => args.some(a => line.slice(a.start, a.end).includes('docker.sock')))
+  const mountsSocket = dockers.some(({ args }) =>
+    args.some(
+      (a, k) =>
+        line.slice(a.start, a.end).includes('docker.sock') &&
+        (SOCKET_FLAGS.has(args[k - 1]?.text ?? '') || SOCKET_FLAGS.has(attachedFlag(a.text) ?? '')),
+    ),
+  )
   if (daemonOnly || mountsSocket) {
     const what = daemonOnly ? `\`docker ${daemonOnly}\`` : 'a docker.sock mount'
     return {

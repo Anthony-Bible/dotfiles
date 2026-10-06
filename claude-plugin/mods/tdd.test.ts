@@ -62,6 +62,20 @@ describe('the TDD Phase', () => {
     }
   })
 
+  test('a hide by /tdd survives every later Check and TDD subagent', () => {
+    const r = rng(3)
+    for (let i = 0; i < RUNS; i++) {
+      let t = toggle(onCheck(initialTdd, r() < 0.5))
+      expect(isShown(t)).toBe(false)
+      for (let j = 0; j < 25; j++) {
+        const s = randomStep(r)
+        if (s.kind === 'toggle') continue
+        t = run(t, s)
+        expect(isShown(t)).toBe(false)
+      }
+    }
+  })
+
   test('a fresh agent-led phase waits for its Check, which then judges it by TDD rules', () => {
     const red = onAgent(initialTdd, 'red-phase-tester')
     expect(verdictOf(red).mood).toBe('waiting')
