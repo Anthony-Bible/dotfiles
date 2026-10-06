@@ -34,6 +34,8 @@ const WRAPPER_VALUE_FLAGS: Record<string, ReadonlySet<string>> = {
 /** The options whose value mounts or dials a daemon socket, as in `-v /var/run/docker.sock:/s` or `-H unix://...`. */
 const SOCKET_FLAGS = new Set(['-v', '--volume', '--mount', '-H', '--host'])
 const DOCKER_VALUE_FLAGS = new Set(['--config', '-c', '--context', '-H', '--host', '-l', '--log-level', '--tlscacert', '--tlscert', '--tlskey'])
+/** Shell keywords and reserved words after which the next word is a command, as in `if docker ps; then ...`. */
+const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'while', 'until', 'do', '!', '{'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
 /** `startsCommand`: the word begins a new simple command of the chain (after `;`, `&`, `|` or a newline). */
@@ -41,7 +43,8 @@ type Word = { text: string; start: number; end: number; isCommand: boolean; star
 
 /**
  * The line's words outside quotes, each marked when it sits where the shell runs a command: at the start, after
- * `;`, `&`, `|`, a newline, `(`, `$(` or a backtick, and after leading assignments and wrappers like `sudo`.
+ * `;`, `&`, `|`, a newline, `(`, `$(` or a backtick, and after leading assignments, shell keywords (`if`, `do`,
+ * `!`, ...) and wrappers like `sudo`.
  * A quoted part stays inside its word, so `echo "docker run"` holds no `docker` word.
  */
 export const words = (line: string): Word[] => {
@@ -66,7 +69,7 @@ export const words = (line: string): Word[] => {
       const isWrapperFlag = wrapper !== undefined && text.startsWith('-')
       expectsValue = isWrapperFlag && (WRAPPER_VALUE_FLAGS[wrapper as string]?.has(text) ?? false)
       wrapper = isWrapper ? text : isWrapperFlag ? wrapper : undefined
-      expectsCommand = ASSIGNMENT.test(text) || isWrapper || isWrapperFlag
+      expectsCommand = ASSIGNMENT.test(text) || KEYWORDS.has(text) || isWrapper || isWrapperFlag
     }
     start = -1
     text = ''

@@ -26,6 +26,11 @@ const DOCKER: readonly (readonly [string, string])[] = [
   ['watch -d docker ps', 'watch -d podman ps'],
   ['docker run -e DOCKER_OK=1 alpine', 'podman run -e DOCKER_OK=1 alpine'],
   ['docker run alpine cat /docs/docker.sock', 'podman run alpine cat /docs/docker.sock'],
+  ['if docker ps; then docker ps -a; else docker info; fi', 'if podman ps; then podman ps -a; else podman info; fi'],
+  ['while ! docker info; do sleep 1; done', 'while ! podman info; do sleep 1; done'],
+  ['until docker ps; do :; done', 'until podman ps; do :; done'],
+  ['{ docker ps; }', '{ podman ps; }'],
+  ['for i in 1 2; do docker rm $i; done', 'for i in 1 2; do podman rm $i; done'],
 ]
 // Lines that mention docker without running it, and lines that never mention it.
 const QUIET = [
@@ -40,6 +45,7 @@ const QUIET = [
   'sudo -u docker whoami',
   'echo "see the docker.sock docs"',
   'echo `date` docker run',
+  'echo if docker run',
 ]
 const SEPARATORS = [' && ', ' || ', '; ', ' | ', '\n']
 
@@ -92,6 +98,8 @@ describe('guard', () => {
       'docker run --volume=/var/run/docker.sock:/s alpine',
       'docker run --mount type=bind,src=/var/run/docker.sock,dst=/s alpine',
       'docker -H unix:///var/run/docker.sock ps',
+      'if docker context ls; then :; fi',
+      '! docker swarm init',
     ]
     for (const line of lines) {
       const g = guard(line)
