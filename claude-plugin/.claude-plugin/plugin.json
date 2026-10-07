@@ -1,6 +1,6 @@
 {
   "name": "dotfiles-dev-tools",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, and skills incl. pi-implementer (a local model implements your Tickets through pi + pi-vcc) and second-opinion (Muse Code reviews your Diffs and Plans read-only; Claude verifies and argues back), plus mods: Crawler Points HUD, Dispatch Board, Podman Guard, TDD Band and the System's voice",
   "types": "./types/index.d.ts"
 }

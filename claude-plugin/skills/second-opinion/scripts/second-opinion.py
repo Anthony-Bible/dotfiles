@@ -23,10 +23,11 @@ caller fails open); 4 = skipped (no changes, or below the --auto threshold).
 
 Isolation: `--disable-write` does not stop shell writes, so the Reviewer never runs in the real checkout. The
 working tree (tracked changes and untracked, non-ignored files) is committed to a dangling snapshot through a
-temporary index, never touching the real index or stash, and muse runs in a throwaway worktree of that commit
-(`-w create --worktree-base`). Muse removes the worktree itself; this script deletes the muse/session-* branches
-the run left behind (only those that descend from the snapshot). Muse's own .muse/worktrees/ bookkeeping stays: muse lists it in
-.git/info/exclude itself.
+temporary index, never touching the real index or stash. Each turn, this script checks that commit out in a
+fresh detached worktree inside the run directory (`git worktree add --detach`) and hands it to muse with
+`-w existing`; muse leaves a caller-owned worktree alone, and the script removes it after the turn, whatever
+the outcome. (`-w create` is out: since muse 1.4.3 its sandbox may not create .git/worktrees/ entries.) Turn 2
+resumes the same session in a new worktree of the same snapshot. No branches are created.
 
 The 10-minute budget covers the review and the Rebuttal together. Runs are kept in <git-dir>/second-opinion/.
 Python 3.8+, stdlib only. Runs through `uv run --script` (PEP 723 metadata above); `python3 second-opinion.py`
@@ -138,22 +139,9 @@ def diff_stats(base, snap):
     return {"files": files, "code_files": [f for f in files if is_code(f)], "code_lines": code_lines}
 
 
-def muse_branches():
-    return set(git("for-each-ref", "--format=%(refname:short)", "refs/heads/muse/").split())
-
-
-def cleanup(root, before, snap):
-    """Remove what the run left behind: its worktrees and its muse/session-* branches."""
-    wt_dir = os.path.join(root, ".muse", "worktrees")
-    for branch in muse_branches() - before:
-        if subprocess.run(["git", "merge-base", "--is-ancestor", snap, branch], capture_output=True).returncode:
-            continue  # not ours: another muse session in this repo made it
-        porcelain = git("worktree", "list", "--porcelain").split("\n\n")
-        for block in porcelain:
-            lines = dict(l.split(" ", 1) for l in block.splitlines() if " " in l)
-            if lines.get("branch") == f"refs/heads/{branch}" and lines.get("worktree", "").startswith(wt_dir):
-                subprocess.run(["git", "worktree", "remove", "--force", lines["worktree"]], capture_output=True)
-        subprocess.run(["git", "branch", "-D", branch], capture_output=True)
+def remove_worktree(path):
+    subprocess.run(["git", "worktree", "remove", "--force", path], capture_output=True)
+    shutil.rmtree(path, ignore_errors=True)  # in case git no longer knew it as a worktree
     subprocess.run(["git", "worktree", "prune"], capture_output=True)
 
 
@@ -164,27 +152,34 @@ def run_muse(root, run, turn, prompt, schema, meta):
         f.write(prompt)
     with open(paths["schema.json"], "w") as f:
         json.dump(schema, f)
-    cmd = ["muse", "exec", *MUSE_FLAGS, "--prompt-file", paths["prompt.md"], "--output-schema",
-           paths["schema.json"], "--session-id", meta["session_id"], "--reasoning-effort", meta["effort"],
-           "-w", "create", "--worktree-base", meta["snapshot"]]
     remaining = meta["deadline"] - time.time()
     if remaining < 5:
         return None, "timeout: the review budget is spent"
-    before = muse_branches()
+    worktree = os.path.join(run, f"turn{turn}.worktree")
+    try:
+        git("worktree", "add", "--detach", worktree, meta["snapshot"])
+    except subprocess.CalledProcessError as e:
+        remove_worktree(worktree)
+        return None, f"cannot create the snapshot worktree: {e.stderr.strip()}"
+    cmd = ["muse", "exec", *MUSE_FLAGS, "--prompt-file", paths["prompt.md"], "--output-schema",
+           paths["schema.json"], "--session-id", meta["session_id"], "--reasoning-effort", meta["effort"],
+           "-w", "existing", "--worktree-existing", worktree]
     timed_out = False
-    with open(paths["jsonl"], "w") as log, open(paths["stderr"], "w") as err:
-        proc = subprocess.Popen(cmd, cwd=root, stdout=log, stderr=err, start_new_session=True)
-        try:
-            proc.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+    try:
+        with open(paths["jsonl"], "w") as log, open(paths["stderr"], "w") as err:
+            # cwd is the source repo (muse refuses a worktree equal to it); the Reviewer's workspace is the worktree
+            proc = subprocess.Popen(cmd, cwd=root, stdout=log, stderr=err, start_new_session=True)
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            proc.wait()
-        finally:
-            cleanup(root, before, meta["snapshot"])
+                proc.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+    finally:  # whatever happens after `worktree add`, including Popen failing
+        remove_worktree(worktree)
     if timed_out:
         return None, f"timeout after {meta['timeout']}s"
     terminal = None
@@ -200,7 +195,7 @@ def run_muse(root, run, turn, prompt, schema, meta):
     if not terminal or terminal.get("terminal") != "completed":
         detail = (terminal or {}).get("reason") or " | ".join(tail) or "no final answer in the event stream"
         return None, f"muse exited {proc.returncode}: {detail}"
-    if proc.returncode != 0:  # a completed answer still counts: muse exits 1 when its own worktree cleanup fails
+    if proc.returncode != 0:  # a completed answer still counts, even if muse fails afterwards
         meta.setdefault("warnings", []).append(f"turn {turn}: muse exited {proc.returncode} after a completed "
                                                "answer: " + (" | ".join(tail) or "no stderr"))
     try:
