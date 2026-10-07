@@ -12,8 +12,8 @@
     {
       "name": "dotfiles-dev-tools",
       "source": "./claude-plugin",
-      "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, grill-with-docs, pi-implementer (a local model implements Tickets through pi + pi-vcc under Claude Code's supervision), and second-opinion (Muse Code reviews Diffs and Plans read-only; Claude verifies and rebuts), plus mods: Crawler Points HUD, Dispatch Board, Podman Guard, TDD Band and the System's voice",
-      "version": "0.6.1",
+      "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, grill-with-docs, pi-implementer (a local model implements Tickets through pi + pi-vcc under Claude Code's supervision), and second-opinion (Muse Code reviews Diffs and Plans read-only; Claude verifies and rebuts), plus mods: Crawler Points HUD, Dispatch Board, Podman Guard, Branch Guard, TDD Band, Floor Boss and the System's voice",
+      "version": "0.7.0",
       "author": {
         "name": "Anthony Bible"
       },

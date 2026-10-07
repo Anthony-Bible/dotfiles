@@ -16,6 +16,12 @@
 //
 // The System's voice: Spinner Words in the terminal, and a Verdict under each Notable Turn's answer.
 //
+// Branch Guard: a git commit on a Protected Branch, or a push that lands on one, is refused; a BRANCH_OK=1
+// line passes untouched.
+//
+// Floor Boss: three red runs in a row of one Check command summon a named boss above the prompt, its HP the
+// failing-test count; that command's next green run slays it for 100 CP and an Achievement.
+//
 // Every use of `$` lives in this file (the engine follows `$` into this file's functions, never across an
 // import); the rules are in ../mods/board.ts and ../mods/points.ts.
 
@@ -52,6 +58,8 @@ import {
   type Fate,
   type Usage,
 } from '../mods/points'
+import { bossToast, checkKey, failingCount, hpBar, initialBosses, newestBoss, onBossCheck, slayAward } from '../mods/boss'
+import { branchGuard, gitSteps, type Repo } from '../mods/branch'
 import { guard, rewriteNote } from '../mods/podman'
 import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
 import {
@@ -64,7 +72,7 @@ import {
   verdictPrompt,
   type TurnStats,
 } from '../mods/voice'
-import type { BoardRowState, BoardState, CrawlerScore, TddState } from '../types'
+import type { BoardRowState, BoardState, BossesState, CrawlerScore, TddState } from '../types'
 
 // ---------------------------------------------------------------------------------------------- state
 
@@ -72,6 +80,7 @@ const board = atom({ plugin: 'dotfiles-dev-tools', key: 'board' } as const, null
 const score = atom({ plugin: 'dotfiles-dev-tools', key: 'score' } as const, { session: 0, streak: 0 })
 const allTime = atom({ plugin: 'dotfiles-dev-tools', key: 'allTime' } as const, 0)
 const tdd = atom({ plugin: 'dotfiles-dev-tools', key: 'tdd' } as const, initialTdd as TddState)
+const bosses = atom({ plugin: 'dotfiles-dev-tools', key: 'bosses' } as const, initialBosses as BossesState)
 
 const PANE = 'dispatch-board'
 const TITLE = 'Dispatch Board'
@@ -354,6 +363,32 @@ async function announce(
   }
 }
 
+/** The repository a Branch Guard step runs in, or undefined outside one (or where the directory is unknown). */
+async function repoAt($: EngineInterface, dir: string): Promise<Repo | undefined> {
+  if (/[$`]/.test(dir)) return undefined
+  const home = dir.startsWith('~') ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout : ''
+  const at = home ? home + dir.slice(1) : dir
+  const git = (...args: string[]) => $.process.run(['git', ...(at ? ['-C', at] : []), ...args])
+  const current = await git('branch', '--show-current')
+  if (current.exitCode !== 0) return undefined
+  // An unborn branch (no commits yet) is no branch to guard: the first commit lands wherever it must.
+  const isBorn = (await git('rev-parse', '--verify', '-q', 'HEAD')).exitCode === 0
+  const head = (await git('symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD')).stdout.trim()
+  return {
+    branch: isBorn ? current.stdout.trim() || undefined : undefined,
+    defaultBranch: head ? head.slice(head.indexOf('/') + 1) : undefined,
+  }
+}
+
+/** A Check of `key` finished: the Floor Boss it summons, hurts or heals gets a toast, and one it slays an Award. */
+async function fight($: EngineInterface, key: string, isGreen: boolean, output: string): Promise<void> {
+  const r = onBossCheck(await read($, bosses), key, isGreen, isGreen ? undefined : failingCount(output))
+  await update($, bosses, () => r.bosses)
+  if (!r.event) return
+  if (r.event.kind === 'slain') await award($, slayAward(r.event.boss))
+  else $.ui.toast(bossToast(r.event), { timeoutMs: TOAST_MS })
+}
+
 async function award($: EngineInterface, a: Award): Promise<void> {
   if (turn) turn = { ...turn, points: turn.points + a.points, events: [...turn.events, a.event] }
   const after = await update($, score, s => apply(s, a))
@@ -425,6 +460,17 @@ export const register: Register = on => {
     return { ...ran, context: [...(ran.context ?? []), rewriteNote(e.command, g.command)] }
   }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
 
+  // ------------------------------------------------------------------------------------- Branch Guard
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const steps = gitSteps(e.command)
+    if (steps.length === 0) return next(e)
+    const repos = new Map<string, Repo | undefined>()
+    for (const dir of new Set(steps.map(s => s.dir))) repos.set(dir, await repoAt($, dir))
+    const g = branchGuard(e.command, dir => repos.get(dir))
+    return g.kind === 'deny' ? { deny: g.reason } : next(e)
+  }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
+
   // ----------------------------------------------------------------------------------------------- HUD
 
   on('session.measure', async ($, e, next) => {
@@ -454,12 +500,28 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
     const t = await read($, tdd)
-    if (e.props.hasSurvey || !isShown(t)) return next(e)
+    const fight = newestBoss(await read($, bosses))
+    if (!isShown(t) && !fight) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const v = verdictOf(t)
-    return (
-      <Box gap={1}>
+    const bossRow = fight && (
+      <Box key="boss" gap={1}>
+        <Text bold color="red">
+          ☠ FLOOR BOSS
+        </Text>
+        <Text bold>{fight.boss.name}</Text>
+        <Text color="red">{hpBar(fight.boss)}</Text>
+        <Text dimColor wrap="truncate-end">
+          {fight.key}
+          {fight.others > 0 ? ` · +${fight.others} more` : ''}
+        </Text>
+      </Box>
+    )
+    if (!isShown(t)) return bossRow ?? next(e)
+    const tddRow = (
+      <Box key="tdd" gap={1}>
         <Text bold color={TDD_COLOR[t.phase ?? 'NONE']}>
           {t.phase ? `${TDD_ICON[t.phase]} ${t.phase}` : '· TDD'}
         </Text>
@@ -476,6 +538,14 @@ export const register: Register = on => {
           />
         ))}
       </Box>
+    )
+    return bossRow ? (
+      <Box flexDirection="column">
+        {bossRow}
+        {tddRow}
+      </Box>
+    ) : (
+      tddRow
     )
   })
 
@@ -547,20 +617,24 @@ export const register: Register = on => {
     const ran = await next(e)
     const isDenied = ran.deny !== undefined
     if (e.tool === 'Bash') {
-      const result = ran.result as { backgroundTaskId?: string } | undefined
+      const result = ran.result as { backgroundTaskId?: string; stdout?: string; stderr?: string } | undefined
       if (!isDenied && result?.backgroundTaskId) return ran // still running: nothing to score yet
       if (isDenied) {
         await award($, errorAward('Bash', true))
         return ran
       }
+      let checked: boolean | undefined
       for (const a of bashAwards(e.command, ran.isError === true, await read($, score), !hasChecked)) {
         if (a.isGreen !== undefined) {
           hasChecked = true
           const isGreen = a.isGreen
+          checked = isGreen
           await update($, tdd, t => onCheck(t, isGreen))
         }
         await award($, a)
       }
+      const key = checkKey(e.command)
+      if (key && checked !== undefined) await fight($, key, checked, `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`)
       return ran
     }
     if (isDenied || ran.isError === true) await award($, errorAward(String(e.tool), isDenied))

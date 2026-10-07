@@ -28,6 +28,7 @@ const bashAward = (command: string, isError: boolean, score: Score, isFirstCheck
 
 const CHECKS = [
   'go test ./...',
+  'claude plugin test claude-plugin',
   'go build ./cmd/x',
   'pytest -q',
   'npm run test',

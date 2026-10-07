@@ -33,6 +33,13 @@ export type TddState = {
   visibility: 'auto' | 'shown' | 'hidden'
 }
 
+export type BossState = { name: string; hp: number; maxHp: number; order: number }
+
+export type BossesState = {
+  foes: Record<string, { reds: number; boss?: BossState }>
+  summoned: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'dotfiles-dev-tools': {
@@ -40,6 +47,7 @@ declare module 'claude-code' {
       score: CrawlerScore
       allTime: number
       tdd: TddState
+      bosses: BossesState
     }
   }
 }

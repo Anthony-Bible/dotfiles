@@ -25,7 +25,7 @@ const FORCE_PUSH = /\bgit\s+push\b[^|;&]*\s(?:-f\b|--force\b|--force-with-lease\
 const COMMIT = /\bgit\s+commit\b/
 const PR = /\bgh\s+pr\s+create\b/
 const CHECK =
-  /\b(?:go\s+(?:test|build|vet)|pytest|cargo\s+(?:test|build|check|clippy)|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|typecheck|lint)|tsc|make|nix\s+(?:build|flake\s+check)|golangci-lint|shellcheck)\b/
+  /\b(?:go\s+(?:test|build|vet)|pytest|cargo\s+(?:test|build|check|clippy)|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|typecheck|lint)|tsc|make|nix\s+(?:build|flake\s+check)|golangci-lint|shellcheck|claude\s+plugin\s+(?:test|validate))\b/
 
 /** The command with its quoted strings blanked, so a commit message or an echo never reads as a command. */
 const unquoted = (command: string): string => command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, "''")
