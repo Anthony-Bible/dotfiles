@@ -59,6 +59,8 @@ export const words = (line: string): Word[] => {
     start = -1
     text = ''
   }
+  /** Heredocs opened on the current line, whose bodies start after its newline. */
+  const heredocs: Heredoc[] = []
   for (let i = 0; i < line.length; i++) {
     const c = line[i] as string
     if (quote) {
@@ -76,6 +78,11 @@ export const words = (line: string): Word[] => {
       quote = c
     } else if (c === ' ' || c === '\t') {
       end(i)
+    } else if (c === '<' && line[i + 1] === '<' && line[i + 2] !== '<' && line[i - 1] !== '<') {
+      end(i)
+      const h = heredocAt(line, i)
+      heredocs.push(h)
+      i = h.after - 1
     } else if (';&|\n()`'.includes(c) || (c === '$' && line[i + 1] === '(')) {
       end(i)
       if (c === '$') i++
@@ -85,6 +92,8 @@ export const words = (line: string): Word[] => {
       startsCommand = ';&|\n'.includes(c)
       wrapper = undefined
       expectsValue = false
+      // The bodies of the line's heredocs are document text: the next word is the command after the last one.
+      if (c === '\n' && heredocs.length > 0) i = skipBodies(line, i + 1, heredocs.splice(0)) - 1
     } else {
       if (start < 0) start = i
       text += c
@@ -92,6 +101,50 @@ export const words = (line: string): Word[] => {
   }
   end(line.length)
   return out
+}
+
+/** A heredoc's opener: its delimiter, whether `<<-` strips leading tabs, and where the opener ends. */
+type Heredoc = { delimiter: string; isTabStripped: boolean; after: number }
+
+/** The heredoc opened by the `<<` at `at`: `<<EOF`, `<<-EOF`, `<< 'EOF'`, `<<"EOF"`, `<<E\OF` alike. */
+const heredocAt = (line: string, at: number): Heredoc => {
+  let i = at + 2
+  const isTabStripped = line[i] === '-'
+  if (isTabStripped) i++
+  while (line[i] === ' ' || line[i] === '\t') i++
+  let delimiter = ''
+  for (; i < line.length && !' \t\n;&|<>()'.includes(line[i] as string); i++) {
+    const c = line[i] as string
+    if (c === "'" || c === '"') {
+      const close = line.indexOf(c, i + 1)
+      const to = close < 0 ? line.length : close
+      delimiter += line.slice(i + 1, to)
+      i = to
+    } else if (c === '\\') delimiter += line[++i] ?? ''
+    else delimiter += c
+  }
+  return { delimiter, isTabStripped, after: i }
+}
+
+/**
+ * Where the shell picks up again after the bodies of `heredocs`, the first starting at `from`: the newline that
+ * ends the last one's delimiter line, or the end of the line when a body never closes. Bodies are opaque, even
+ * an unquoted delimiter's whose `$(...)` the shell would expand: misreading a document as commands is worse.
+ */
+const skipBodies = (line: string, from: number, heredocs: readonly Heredoc[]): number => {
+  let at = from
+  for (const [n, h] of heredocs.entries()) {
+    if (n > 0) at++ // past the newline that ended the previous delimiter line
+    for (;;) {
+      if (at >= line.length) return line.length
+      const eol = line.indexOf('\n', at) < 0 ? line.length : line.indexOf('\n', at)
+      const text = line.slice(at, eol)
+      at = eol
+      if ((h.isTabStripped ? text.replace(/^\t+/, '') : text) === h.delimiter) break
+      at++
+    }
+  }
+  return at
 }
 
 /** An assignment of `text` (`NAME=value`) before a command, as in `NAME=value cmd ...`, or exported; never an argument. */

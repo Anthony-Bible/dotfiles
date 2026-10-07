@@ -53,7 +53,7 @@ describe('the Branch Guard on commits', () => {
   })
 
   test('a line that only mentions a commit is not one', () => {
-    for (const line of ['echo "git commit"', 'git log --grep commit', 'git show HEAD', "grep -r 'git push origin main' ."])
+    for (const line of ['echo "git commit"', 'git log --grep commit', 'git show HEAD', "grep -r 'git push origin main' .", "cat > notes.md <<'EOF'\ngit commit -m x\n(git push origin main)\nEOF"])
       expect(branchGuard(line, on('main'))).toEqual({ kind: 'pass' })
   })
 
