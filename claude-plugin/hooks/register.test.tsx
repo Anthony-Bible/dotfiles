@@ -24,12 +24,14 @@ const bash = (on: On, isRed: () => boolean) =>
       : { result: { stdout: '', stderr: '', interrupted: false } },
   )
 
-// git as the Branch Guard asks it, with the checkout on `branch()` and origin's default branch main.
-const git = (on: On, branch: () => string) =>
+// git as the Branch Guard asks it, with the checkout on `branch()` and origin's default branch main; an unborn
+// checkout has no HEAD commit to verify.
+const git = (on: On, branch: () => string, isBorn: () => boolean = () => true) =>
   on('process.run', async (_$, e) => {
     const args = e.argv.join(' ')
     const stdout = args.includes('--show-current') ? `${branch()}\n` : args.includes('symbolic-ref') ? 'origin/main\n' : ''
-    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const exitCode = args.includes('rev-parse') && !isBorn() ? 1 : 0
+    return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
 
 describe('Crawler Points scores tool calls', () => {
@@ -138,6 +140,22 @@ describe('the Branch Guard', () => {
     branch = 'feat/x'
     await $.tool.call({ tool: 'Bash', command: 'git commit -m wip' })
     expect(ran).toEqual(['BRANCH_OK=1 git commit -m wip', 'git commit -m wip'])
+  })
+
+  test("an unborn main takes its first commit, but a push of it in the same line never runs", async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    git(on, () => 'main', () => false)
+    const ran: string[] = []
+    on('tool.call', { tool: 'Bash' }, async (_$, e) => {
+      ran.push(e.command)
+      return { result: { stdout: '', stderr: '', interrupted: false } }
+    })
+
+    const denied = await $.tool.call({ tool: 'Bash', command: 'git commit --allow-empty -m init && git push -u origin HEAD' })
+    expect(denied.deny).toContain('main')
+    await $.tool.call({ tool: 'Bash', command: 'git commit --allow-empty -m init' })
+    expect(ran).toEqual(['git commit --allow-empty -m init'])
   })
 })
 

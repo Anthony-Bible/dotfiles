@@ -65,6 +65,28 @@ describe('the Branch Guard on commits', () => {
     expect(branchGuard('cd other && git commit -m x', repoOf).kind).toBe('deny')
     expect(gitSteps('cd a && cd b && git -C c commit')).toEqual([{ kind: 'commit', dir: 'a/b/c', args: [] }])
   })
+
+  test('a cd that may fail leaves the commit judged in every directory it could run in', () => {
+    const repos: Record<string, Repo> = { '': { branch: 'main' }, other: { branch: 'feat/x' } }
+    const repoOf = (dir: string) => repos[dir]
+    for (const line of [
+      'cd /missing || git commit -m x',
+      'cd /missing; git commit -m x',
+      'cd /missing\ngit commit -m x',
+      'cd other && git status || git commit -m x',
+      'cd other && cd /missing; git commit -m x',
+    ])
+      expect(branchGuard(line, repoOf).kind).toBe('deny')
+    expect(branchGuard('cd other && git commit -m x', repoOf).kind).toBe('pass')
+    expect(branchGuard('cd other && git add -A && git commit -m x', repoOf).kind).toBe('pass')
+  })
+
+  test('a commit on an unborn Protected Branch passes, but its push does not', () => {
+    const unborn = () => ({ branch: 'main', isUnborn: true })
+    expect(branchGuard('git commit --allow-empty -m init', unborn)).toEqual({ kind: 'pass' })
+    for (const line of ['git commit --allow-empty -m init && git push -u origin HEAD', 'git push', 'git push origin main'])
+      expect(branchGuard(line, unborn).kind).toBe('deny')
+  })
 })
 
 describe('the Branch Guard on pushes', () => {

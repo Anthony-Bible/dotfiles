@@ -23,8 +23,11 @@ const WRAPPER_VALUE_FLAGS: Record<string, ReadonlySet<string>> = {
 const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'while', 'until', 'do', '!', '{'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 
-/** `startsCommand`: the word begins a new simple command of the chain (after `;`, `&`, `|` or a newline). */
-export type Word = { text: string; start: number; end: number; isCommand: boolean; startsCommand: boolean }
+/**
+ * `startsCommand`: the word begins a new simple command of the chain (after `;`, `&`, `|` or a newline), and
+ * `joinedBy` is the operator that chained it there (`&&`, `||`, `;`, `|`, `\n`, ...; '' for the line's first).
+ */
+export type Word = { text: string; start: number; end: number; isCommand: boolean; startsCommand: boolean; joinedBy: string }
 
 /**
  * The line's words outside quotes, each marked when it sits where the shell runs a command: at the start, after
@@ -39,6 +42,8 @@ export const words = (line: string): Word[] => {
   let text = ''
   let expectsCommand = true
   let startsCommand = true
+  /** The chain operator read since the last word. */
+  let op = ''
   /** The wrapper whose flags are being read, and whether the word now is one flag's value. */
   let wrapper: string | undefined
   let expectsValue = false
@@ -46,8 +51,9 @@ export const words = (line: string): Word[] => {
   const end = (at: number) => {
     if (start < 0) return
     const isCommand = expectsCommand && !expectsValue
-    out.push({ text, start, end: at, isCommand, startsCommand })
+    out.push({ text, start, end: at, isCommand, startsCommand, joinedBy: startsCommand ? op : '' })
     startsCommand = false
+    op = ''
     if (expectsValue) expectsValue = false
     else if (isCommand) {
       const isWrapper = WRAPPERS.has(text)
@@ -90,6 +96,7 @@ export const words = (line: string): Word[] => {
       if (c === '`') inBacktick = !inBacktick
       expectsCommand = c === '`' ? inBacktick : c !== ')'
       startsCommand = ';&|\n'.includes(c)
+      if (startsCommand) op += c
       wrapper = undefined
       expectsValue = false
       // The bodies of the line's heredocs are document text: the next word is the command after the last one.

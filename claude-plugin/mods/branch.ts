@@ -8,15 +8,19 @@ export type Judged = { kind: 'pass' } | { kind: 'deny'; reason: string }
 /** The Branch Escape Hatch: an assignment of it anywhere in the line leaves the whole line alone. */
 export const BRANCH_HATCH = 'BRANCH_OK=1'
 
-/** What the guard needs of a repository: its checked-out branch (absent when detached) and its default branch. */
-export type Repo = { branch?: string; defaultBranch?: string }
+/**
+ * What the guard needs of a repository: its checked-out branch (absent when detached), its default branch, and
+ * whether that branch is unborn (no commits yet), when its first commit may land wherever it must.
+ */
+export type Repo = { branch?: string; defaultBranch?: string; isUnborn?: boolean }
 
 export const protectedBranches = (repo: Repo): Set<string> =>
   new Set(['main', 'master', ...(repo.defaultBranch ? [repo.defaultBranch] : [])])
 
 /**
  * A git commit or push the line runs: `dir` is where it runs, relative to the session's directory ('' for the
- * directory itself), from earlier `cd`s and `-C`; `args` are the words after the subcommand, unquoted.
+ * directory itself), from earlier `cd`s and `-C`; `args` are the words after the subcommand, unquoted. A `cd`
+ * that may have failed leaves one step per directory the command could run in.
  */
 export type GitStep = { kind: 'commit' | 'push'; dir: string; args: string[] }
 
@@ -30,27 +34,42 @@ const valueOf = (line: string, w: Word): string => line.slice(w.start, w.end).re
 /** `to` resolved against `from`, both relative to the session's directory. */
 const join = (from: string, to: string): string => (to.startsWith('/') || to.startsWith('~') || from === '' ? to : `${from}/${to}`)
 
+const unique = (xs: readonly string[]): string[] => [...new Set(xs)]
+
 export const gitSteps = (line: string): GitStep[] => {
   const ws = words(line)
   const steps: GitStep[] = []
-  let dir = ''
+  // Where the next command may run: `dirs` if every `cd` since the chain last broke succeeded, `fallback` if one
+  // failed. Only `&&` carries a `cd`'s success forward; any other operator lets a failed one's command run too.
+  let dirs = ['']
+  let fallback: string[] = []
   ws.forEach((w, i) => {
+    if (w.startsCommand && w.joinedBy.replace(/\n/g, '') !== '&&') {
+      dirs = unique([...dirs, ...fallback])
+      fallback = []
+    }
     if (!w.isCommand) return
     const args = argsOf(ws, i)
     if (w.text === 'cd') {
-      dir = args[0] ? join(dir, valueOf(line, args[0])) : '~'
+      fallback = unique([...fallback, ...dirs])
+      dirs = unique(dirs.map(d => (args[0] ? join(d, valueOf(line, args[0])) : '~')))
       return
     }
     if (w.text !== 'git') return
-    let at = dir
+    let at = dirs
     for (let k = 0; k < args.length; k++) {
       const t = (args[k] as Word).text
       if (!t.startsWith('-')) {
-        if (t === 'commit' || t === 'push')
-          steps.push({ kind: t, dir: at, args: args.slice(k + 1).map(a => valueOf(line, a)) })
+        if (t === 'commit' || t === 'push') {
+          const rest = args.slice(k + 1).map(a => valueOf(line, a))
+          for (const dir of at) steps.push({ kind: t, dir, args: rest })
+        }
         return
       }
-      if (t === '-C' && args[k + 1]) at = join(at, valueOf(line, args[k + 1] as Word))
+      if (t === '-C' && args[k + 1]) {
+        const to = valueOf(line, args[k + 1] as Word)
+        at = unique(at.map(d => join(d, to)))
+      }
       if (GIT_VALUE_FLAGS.has(t)) k++
     }
   })
@@ -99,7 +118,7 @@ export const branchGuard = (line: string, repoOf: (dir: string) => Repo | undefi
     if (!repo) continue
     const guarded = protectedBranches(repo)
     if (step.kind === 'commit') {
-      if (repo.branch && guarded.has(repo.branch))
+      if (repo.branch && !repo.isUnborn && guarded.has(repo.branch))
         return {
           kind: 'deny',
           reason:

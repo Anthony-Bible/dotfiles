@@ -80,7 +80,8 @@ A named foe that appears when the same Check command comes out red three times i
 _Avoid_: boss fight, blocker
 
 **Boss HP**:
-How many tests the Floor Boss's Check command reported failing on its last red run, or 1 when the output doesn't say.
+How many tests the Floor Boss's Check command last reported failing. A red run whose output doesn't say leaves it
+unchanged, since a run that never reached the tests is no progress; a boss summoned by one starts at 1.
 _Avoid_: health, lives
 
 ### Containers

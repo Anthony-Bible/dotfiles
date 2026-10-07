@@ -371,12 +371,13 @@ async function repoAt($: EngineInterface, dir: string): Promise<Repo | undefined
   const git = (...args: string[]) => $.process.run(['git', ...(at ? ['-C', at] : []), ...args])
   const current = await git('branch', '--show-current')
   if (current.exitCode !== 0) return undefined
-  // An unborn branch (no commits yet) is no branch to guard: the first commit lands wherever it must.
-  const isBorn = (await git('rev-parse', '--verify', '-q', 'HEAD')).exitCode === 0
+  // An unborn branch (no commits yet) takes its first commit wherever it must, but keeps its name for a push.
+  const isUnborn = (await git('rev-parse', '--verify', '-q', 'HEAD')).exitCode !== 0
   const head = (await git('symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD')).stdout.trim()
   return {
-    branch: isBorn ? current.stdout.trim() || undefined : undefined,
+    branch: current.stdout.trim() || undefined,
     defaultBranch: head ? head.slice(head.indexOf('/') + 1) : undefined,
+    isUnborn,
   }
 }
 
