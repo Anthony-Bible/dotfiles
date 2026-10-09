@@ -112,6 +112,54 @@ _Avoid_: main blocker
 A `BRANCH_OK=1` prefix that marks a commit or push as meant for a Protected Branch, so the Branch Guard leaves it alone.
 _Avoid_: override, bypass
 
+### Sponsor Mail
+
+**Sponsor Mail**:
+The watch the System keeps on the Watched PR, reporting its checks and review comments without a turn being spent.
+_Avoid_: PR watcher, CI monitor
+
+**Watched PR**:
+The open pull request for the session's current branch, whoever opened it, once a `gh pr create` succeeds or the Crawler asks for the watch.
+_Avoid_: tracked PR, my PR
+
+**Mail**:
+A comment or review on the Watched PR that arrived after the watch began, from anyone (bots and the Crawler included), except one Claude posted.
+_Avoid_: notification, feedback
+
+**Answered**:
+Mail that Claude replied to in its thread, or whose thread was resolved; a top-level comment is answered by any comment Claude posts after it.
+_Avoid_: handled, addressed, done
+
+### Beast
+
+**Beast**:
+The GPU machine that serves the local model through llama-server, at the address pi-implementer's config names.
+_Avoid_: the box, the server, the GPU
+
+**Beast Watch**:
+The System's watch on Beast's health, woken the first time the session uses Beast and kept for the rest of it.
+_Avoid_: beast monitor, health check
+
+**Beast State**:
+How Beast last looked: Up, Loading (llama-server still loading its model) or Down.
+_Avoid_: status, health
+
+**Down**:
+Beast unreachable, llama-server failing its health check or not serving the Dispatches' model, the GPU missing or lost, or Beast Wedged.
+_Avoid_: offline, dead
+
+**Wedged**:
+llama-server reporting healthy while failing to answer a one-token completion in time when no Dispatch is running.
+_Avoid_: hung, stuck, stalled
+
+**Beast Guard**:
+The rule that a Dispatch doesn't start while Beast is Down, and waits a bounded time while it is Loading, unless the command carries the Beast Escape Hatch.
+_Avoid_: dispatch blocker
+
+**Beast Escape Hatch**:
+A `BEAST_OK=1` prefix that marks a Dispatch as meant to start whatever the Beast State, so the Beast Guard leaves it alone.
+_Avoid_: override, bypass
+
 ### pi-implementer
 
 **Dispatch**:
@@ -132,6 +180,10 @@ _Avoid_: result, status
 - A **Dispatch**'s **Fate** becomes an **Award**
 - A command with the **Docker Escape Hatch** passes through the **Podman Guard**, while a **Daemon-Only Command** without the hatch is refused
 - A commit or push to a **Protected Branch** is refused by the **Branch Guard** unless it carries the **Branch Escape Hatch**
+- **Sponsor Mail** watches one **Watched PR**; merging or closing it ends the watch, and so does leaving its branch
+- **Mail** is delivered as a notification the Crawler acts on by choice; nothing starts a turn unasked
+- A red check on the **Watched PR** costs Crawler Points; its merge earns them, and so does every **Mail** becoming **Answered**
+- A **Dispatch** started while **Beast** is **Down** is refused by the **Beast Guard** unless it carries the **Beast Escape Hatch**
 
 ## Example dialogue
 
