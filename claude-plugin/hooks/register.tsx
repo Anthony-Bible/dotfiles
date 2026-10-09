@@ -93,6 +93,7 @@ import {
 import {
   beastGuard,
   beastSegment,
+  completionOf,
   healthOf,
   hostOf,
   isBeastUse,
@@ -521,14 +522,21 @@ async function beginMail($: EngineInterface, url?: string): Promise<string> {
 }
 
 async function deliver($: EngineInterface, w: MailWatch, ev: MailEvent): Promise<void> {
-  if (ev.kind === 'mail') await tell($, mailNotice(w, ev.mail), MAIL_TITLE)
-  else if (ev.kind === 'answered') await award($, answeredAward(w, ev.count))
-  else if (ev.kind === 'red') {
-    await tell($, redNotice(w, ev.names), MAIL_TITLE)
-    await award($, redAward(w, ev.names))
-  } else if (ev.kind === 'green') $.ui.toast(`PR #${w.number}: every check is green`, { timeoutMs: TOAST_MS })
-  else if (ev.kind === 'merged') await award($, mergeAward(w))
-  else $.ui.toast(`PR #${w.number} was closed: Sponsor Mail stops watching it`, { timeoutMs: TOAST_MS })
+  switch (ev.kind) {
+    case 'mail':
+      return tell($, mailNotice(w, ev.mail), MAIL_TITLE)
+    case 'answered':
+      return award($, answeredAward(w, ev.count))
+    case 'red':
+      await tell($, redNotice(w, ev.names), MAIL_TITLE)
+      return award($, redAward(w, ev.names))
+    case 'green':
+      return $.ui.toast(`PR #${w.number}: every check is green`, { timeoutMs: TOAST_MS })
+    case 'merged':
+      return award($, mergeAward(w))
+    case 'closed':
+      return $.ui.toast(`PR #${w.number} was closed: Sponsor Mail stops watching it`, { timeoutMs: TOAST_MS })
+  }
 }
 
 /**
@@ -586,6 +594,31 @@ async function piEnv($: EngineInterface): Promise<string> {
   return (await $.process.run(['sh', '-c', PI_ENV])).stdout
 }
 
+/** curl to Beast's llama-server. The API key goes in on stdin (`-H @-`), never on argv where ps would show it. */
+async function curlBeast($: EngineInterface, key: string | undefined, ...args: string[]) {
+  return $.process.run(['curl', '-s', '-H', '@-', ...args], {
+    stdin: key ? `Authorization: Bearer ${key}\n` : '',
+    timeoutMs: 25_000,
+  })
+}
+
+/** The one-token probe, skipped while a Dispatch runs or a slot is generating, as it would queue behind them. */
+async function probeToken(
+  $: EngineInterface,
+  key: string | undefined,
+  url: string,
+  alias: string | undefined,
+): Promise<Probe['completion']> {
+  const query = alias ? `?model=${encodeURIComponent(alias)}` : ''
+  if ((watch?.running.size ?? 0) > 0 || isBusy((await curlBeast($, key, '-m', '5', `${url}/slots${query}`)).stdout)) {
+    return 'skipped'
+  }
+  const body = JSON.stringify({ ...(alias ? { model: alias } : {}), prompt: 'hi', max_tokens: 1 })
+  const r = await curlBeast($, key, '-m', '20', '-o', '/dev/null', '-w', '%{http_code}',
+    '-H', 'Content-Type: application/json', '-d', body, `${url}/v1/completions`)
+  return completionOf(r.exitCode, r.stdout)
+}
+
 /**
  * One look at Beast: nvidia-smi over ssh, llama-server's /health and, on a router, the Dispatches' model; then,
  * when that model is loaded and nothing would queue it, one token. `isQuick` leaves the token out.
@@ -596,33 +629,17 @@ async function lookAtBeast($: EngineInterface, isQuick = false): Promise<Reading
   const host = url && hostOf(url)
   if (!url || !host) return { state: 'down', reason: 'no LLAMA_URL in pi-implementer env' }
   beastHost = host
-  // The API key goes in on stdin (`-H @-`), never on argv where ps would show it.
   const key = llamaKeyOf(env)
-  const curl = (...args: string[]) =>
-    $.process.run(['curl', '-s', '-H', '@-', ...args], {
-      stdin: key ? `Authorization: Bearer ${key}\n` : '',
-      timeoutMs: 25_000,
-    })
   const alias = modelAliasOf(env)
   const [smi, health, models] = await Promise.all([
     $.process.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host, SMI_QUERY], { timeoutMs: 15_000 }),
-    curl('-m', '5', '-w', '\n%{http_code}', `${url}/health`),
-    curl('-m', '5', `${url}/v1/models`),
+    curlBeast($, key, '-m', '5', '-w', '\n%{http_code}', `${url}/health`),
+    curlBeast($, key, '-m', '5', `${url}/v1/models`),
   ])
   const probe: Probe = { smi, health: healthOf(health.stdout), model: modelStateOf(models.stdout, alias) }
   // Never a token to a model that is not loaded: on a router it would load it, evicting whatever is.
   const isProbed = !isQuick && smi.exitCode === 0 && probe.health.code === 200 && (probe.model ?? 'loaded') === 'loaded'
-  if (isProbed) {
-    const query = alias ? `?model=${encodeURIComponent(alias)}` : ''
-    const isDispatching = (watch?.running.size ?? 0) > 0 || isBusy((await curl('-m', '5', `${url}/slots${query}`)).stdout)
-    if (isDispatching) probe.completion = 'skipped'
-    else {
-      const body = JSON.stringify({ ...(alias ? { model: alias } : {}), prompt: 'hi', max_tokens: 1 })
-      const r = await curl('-m', '20', '-o', '/dev/null', '-w', '%{http_code}', '-H', 'Content-Type: application/json',
-        '-d', body, `${url}/v1/completions`)
-      probe.completion = r.exitCode === 28 ? 'timeout' : r.exitCode === 0 && r.stdout.trim() === '200' ? 'ok' : 'error'
-    }
-  }
+  if (isProbed) probe.completion = await probeToken($, key, url, alias)
   return judge(probe)
 }
 
@@ -678,7 +695,9 @@ async function guardBeast($: EngineInterface, line: string): Promise<string | un
   if (r.state !== 'loading') r = await checkBeast($)
   const g = beastGuard(line, r)
   if (g.kind === 'deny') return g.reason
-  if (g.kind === 'wait') return `Beast Guard: Beast is still Loading after ${LOADING_WAIT_MS / 60_000} minutes; try again soon.`
+  if (g.kind === 'wait') {
+    return `Beast Guard: Beast is still Loading after ${LOADING_WAIT_MS / 60_000} minutes; try again soon.`
+  }
   return undefined
 }
 
@@ -726,9 +745,15 @@ export const register: Register = on => {
   // -------------------------------------------------------------------------------------- Beast Guard
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (!isGuarded(e.command)) return next(e)
-    const reason = await guardBeast($, e.command)
-    return reason ? { deny: reason } : next(e)
+    if (isGuarded(e.command)) {
+      const reason = await guardBeast($, e.command)
+      return reason ? { deny: reason } : next(e)
+    }
+    // Any other use of Beast wakes Beast Watch; a guarded line has just woken it.
+    if (isBeastUse(e.command, beastHost) && !(await read($, beast)).isAwake) {
+      $.clock.after(0, () => void wakeBeast($).catch(() => undefined))
+    }
+    return next(e)
   }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
 
   on('command.run', { command: 'beast' }, async $ => {
@@ -739,9 +764,6 @@ export const register: Register = on => {
   // ------------------------------------------------------------------------------------- Sponsor Mail
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    if (isBeastUse(e.command, beastHost) && !(await read($, beast)).isAwake) {
-      $.clock.after(0, () => void wakeBeast($).catch(() => undefined))
-    }
     const isPosting = isPost(e.command) && (await read($, mailWatch)) !== null
     if (isPosting) {
       posting++
@@ -759,7 +781,8 @@ export const register: Register = on => {
       if (isDone && isPosting) await lookMail($, true)
       else if (isDone && isPrCreate(e.command)) {
         const url = result?.stdout?.match(/https:\/\/\S+\/pull\/\d+/)?.[0]
-        $.clock.after(0, () => void beginMail($, url).then(text => $.ui.toast(text, { timeoutMs: TOAST_MS })).catch(() => undefined))
+        const toast = (text: string) => $.ui.toast(text, { timeoutMs: TOAST_MS })
+        $.clock.after(0, () => void beginMail($, url).then(toast).catch(() => undefined))
       }
     } catch {
       // the line ran: a failed look leaves Sponsor Mail to its next tick

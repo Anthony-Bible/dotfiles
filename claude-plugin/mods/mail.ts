@@ -86,7 +86,8 @@ const checkOf = (n: Record<string, unknown>): Check | undefined => {
   }
   if (n.__typename === 'StatusContext') {
     const s = String(n.state)
-    return { name: String(n.context), state: s === 'SUCCESS' ? 'pass' : s === 'PENDING' || s === 'EXPECTED' ? 'pending' : 'fail' }
+    const state: CheckState = s === 'SUCCESS' ? 'pass' : s === 'PENDING' || s === 'EXPECTED' ? 'pending' : 'fail'
+    return { name: String(n.context), state }
   }
   return undefined
 }
@@ -210,8 +211,10 @@ export const POLL_QUIET_MS = 600_000
 const QUIET_AFTER_MS = 3600_000
 
 /** How long until the next look: quick while a check runs, slow once the PR has been quiet for an hour. */
-export const nextPollMs = (w: MailWatch, now: number): number =>
-  w.checks.some(c => c.state === 'pending') ? POLL_PENDING_MS : now - w.changedAt > QUIET_AFTER_MS ? POLL_QUIET_MS : POLL_MS
+export const nextPollMs = (w: MailWatch, now: number): number => {
+  if (w.checks.some(c => c.state === 'pending')) return POLL_PENDING_MS
+  return now - w.changedAt > QUIET_AFTER_MS ? POLL_QUIET_MS : POLL_MS
+}
 
 // ---------------------------------------------------------------------------------------- Bash lines
 
@@ -221,11 +224,13 @@ const ghCommands = (line: string): { args: string[]; text: string }[] => {
   return ws.flatMap((w, i) => {
     if (!w.isCommand || w.text !== 'gh') return []
     const args = argsOf(ws, i)
-    return [{ args: args.map(a => a.text.replace(/^["']|["']$/g, '')), text: line.slice(w.start, (args.at(-1) ?? w).end) }]
+    const end = (args.at(-1) ?? w).end
+    return [{ args: args.map(a => a.text.replace(/^["']|["']$/g, '')), text: line.slice(w.start, end) }]
   })
 }
 
-export const isPrCreate = (line: string): boolean => ghCommands(line).some(({ args: a }) => a[0] === 'pr' && a[1] === 'create')
+export const isPrCreate = (line: string): boolean =>
+  ghCommands(line).some(({ args: a }) => a[0] === 'pr' && a[1] === 'create')
 
 const WRITE_FLAGS = new Set(['-f', '-F', '--field', '--raw-field', '--input'])
 
@@ -260,10 +265,14 @@ export const addressPrompt = (w: MailWatch): string =>
   `Address the new review comments on PR #${w.number} (${w.url}): ${w.mail.length} unanswered, from ` +
   `${authorsOf(w.mail)}. Read them with gh, fix what is warranted, and reply in each thread saying what you did.`
 
-export const fixPrompt = (w: MailWatch): string =>
-  `Investigate the failing CI check${tally(w.checks).failed.length === 1 ? '' : 's'} ` +
-  `${tally(w.checks).failed.join(', ')} on PR #${w.number} (gh pr checks ${w.number}) and fix ` +
-  `${tally(w.checks).failed.length === 1 ? 'it' : 'them'}.`
+export const fixPrompt = (w: MailWatch): string => {
+  const { failed } = tally(w.checks)
+  const isOne = failed.length === 1
+  return (
+    `Investigate the failing CI check${isOne ? '' : 's'} ${failed.join(', ')} on PR #${w.number} ` +
+    `(gh pr checks ${w.number}) and fix ${isOne ? 'it' : 'them'}.`
+  )
+}
 
 // ------------------------------------------------------------------------------------------- awards
 

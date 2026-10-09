@@ -23,16 +23,25 @@ export type ModelState = 'loaded' | 'loading' | 'unloaded' | 'failed' | 'missing
 /** The Beast Escape Hatch: an assignment of it anywhere in the line leaves the whole line alone. */
 export const BEAST_HATCH = 'BEAST_OK=1'
 
+/** A variable's value in pi-implementer's env file (`NAME=value`, optionally exported or quoted). */
+const envOf = (envText: string, name: string): string | undefined =>
+  envText.match(new RegExp(`^\\s*(?:export\\s+)?${name}\\s*=\\s*["']?([^"'\\s]+)`, 'm'))?.[1]
+
 /** Beast's llama-server, from pi-implementer's env file, without a trailing slash. */
-export const llamaUrlOf = (envText: string): string | undefined => {
-  const m = envText.match(/^\s*(?:export\s+)?LLAMA_URL\s*=\s*["']?([^"'\s]+)/m)
-  return m ? m[1]!.replace(/\/+$/, '') : undefined
-}
+export const llamaUrlOf = (envText: string): string | undefined => envOf(envText, 'LLAMA_URL')?.replace(/\/+$/, '')
+
+/** The API key pi-implementer sends llama-server, from the same env file. */
+export const llamaKeyOf = (envText: string): string | undefined => envOf(envText, 'LLAMA_API_KEY')
+
+/** The model pi-implementer dispatches to, by the name a router serves it under. */
+export const modelAliasOf = (envText: string): string | undefined => envOf(envText, 'MODEL_ALIAS')
 
 export const hostOf = (url: string): string | undefined => url.match(/^[a-z]+:\/\/(?:[^@/]*@)?([^:/]+)/i)?.[1]
 
 /** nvidia-smi's query of memory per GPU (`used, total` in MiB, one line each). */
 export const SMI_QUERY = 'nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits'
+
+const GPU_LOST = /GPU is lost|Unable to determine the device handle|NVIDIA-SMI has failed/i
 
 const vramOf = (stdout: string): Reading['vram'] => {
   const rows = stdout
@@ -47,8 +56,7 @@ const vramOf = (stdout: string): Reading['vram'] => {
 export const judge = (p: Probe): Reading => {
   if (p.smi.exitCode === 255) return { state: 'down', reason: 'ssh unreachable' }
   if (p.smi.exitCode !== 0) {
-    const isLost = /GPU is lost|Unable to determine the device handle|NVIDIA-SMI has failed/i.test(p.smi.stdout + p.smi.stderr)
-    return { state: 'down', reason: isLost ? 'GPU lost' : 'nvidia-smi failed' }
+    return { state: 'down', reason: GPU_LOST.test(p.smi.stdout + p.smi.stderr) ? 'GPU lost' : 'nvidia-smi failed' }
   }
   const vram = vramOf(p.smi.stdout)
   if (!vram) return { state: 'down', reason: 'no GPU' }
@@ -121,10 +129,6 @@ export const beastGuard = (line: string, r: Reading): BeastJudged => {
 
 export const LOADING_WAIT_MS = 180_000
 
-/** The API key pi-implementer sends llama-server, from the same env file. */
-export const llamaKeyOf = (envText: string): string | undefined =>
-  envText.match(/^\s*(?:export\s+)?LLAMA_API_KEY\s*=\s*["']?([^"'\s]+)/m)?.[1]
-
 /** `curl -w '\n%{http_code}'` output as /health's answer: code 0 when nothing answered. */
 export const healthOf = (stdout: string): Probe['health'] => {
   const cut = stdout.lastIndexOf('\n')
@@ -132,12 +136,12 @@ export const healthOf = (stdout: string): Probe['health'] => {
   return { code: Number.isFinite(code) ? code : 0, body: cut < 0 ? '' : stdout.slice(0, cut) }
 }
 
+/** The completion probe's outcome from `curl -w '%{http_code}'`: curl's exit 28 is its timeout. */
+export const completionOf = (exitCode: number, stdout: string): NonNullable<Probe['completion']> =>
+  exitCode === 28 ? 'timeout' : exitCode === 0 && stdout.trim() === '200' ? 'ok' : 'error'
+
 /** llama-server's /slots answer says a slot is generating: a completion probe would queue behind it. */
 export const isBusy = (slotsJson: string): boolean => /"is_processing"\s*:\s*true/.test(slotsJson)
-
-/** The model pi-implementer dispatches to, by the name a router serves it under. */
-export const modelAliasOf = (envText: string): string | undefined =>
-  envText.match(/^\s*(?:export\s+)?MODEL_ALIAS\s*=\s*["']?([^"'\s]+)/m)?.[1]
 
 /** The model's state in a router's /v1/models; undefined when the server is no router or did not answer. */
 export const modelStateOf = (modelsJson: string, alias: string | undefined): ModelState | undefined => {
