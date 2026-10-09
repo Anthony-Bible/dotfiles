@@ -22,8 +22,14 @@
 // Floor Boss: three red runs in a row of one Check command summon a named boss above the prompt, its HP the
 // failing-test count; that command's next green run slays it for 100 CP and an Achievement.
 //
+// Sponsor Mail: once `gh pr create` succeeds (or /watch-pr), the Watched PR's checks and new comments show above
+// the prompt, polled without a turn; Mail and red checks raise a notification and a button that queues the turn.
+//
+// Beast Watch: woken by the session's first use of Beast (or /beast), Beast's health rides the HUD and its going
+// Down is notified; the Beast Guard refuses a Dispatch while Beast is Down and holds one while it is Loading.
+//
 // Every use of `$` lives in this file (the engine follows `$` into this file's functions, never across an
-// import); the rules are in ../mods/board.ts and ../mods/points.ts.
+// import); the rules are in ../mods/*.ts.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -63,6 +69,48 @@ import { branchGuard, gitSteps, type Repo } from '../mods/branch'
 import { guard, rewriteNote } from '../mods/podman'
 import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
 import {
+  addressPrompt,
+  answeredAward,
+  claimMine,
+  fixPrompt,
+  isPost,
+  isPrCreate,
+  mailNotice,
+  mergeAward,
+  nextPollMs,
+  parsePr,
+  prQueryArgv,
+  prRefOf,
+  redAward,
+  redNotice,
+  startWatch,
+  step,
+  tally,
+  type MailEvent,
+  type MailWatch,
+  type Pr,
+} from '../mods/mail'
+import {
+  beastGuard,
+  beastSegment,
+  completionOf,
+  healthOf,
+  hostOf,
+  isBeastUse,
+  isBusy,
+  isGuarded,
+  judge,
+  llamaKeyOf,
+  llamaUrlOf,
+  LOADING_WAIT_MS,
+  modelAliasOf,
+  modelStateOf,
+  SMI_QUERY,
+  transition,
+  type Probe,
+  type Reading,
+} from '../mods/beast'
+import {
   fallbackVerdict,
   isNotable,
   moodOf,
@@ -72,7 +120,15 @@ import {
   verdictPrompt,
   type TurnStats,
 } from '../mods/voice'
-import type { BoardRowState, BoardState, BossesState, CrawlerScore, TddState } from '../types'
+import type {
+  BeastWatchState,
+  BoardRowState,
+  BoardState,
+  BossesState,
+  CrawlerScore,
+  MailWatchState,
+  TddState,
+} from '../types'
 
 // ---------------------------------------------------------------------------------------------- state
 
@@ -81,6 +137,8 @@ const score = atom({ plugin: 'dotfiles-dev-tools', key: 'score' } as const, { se
 const allTime = atom({ plugin: 'dotfiles-dev-tools', key: 'allTime' } as const, 0)
 const tdd = atom({ plugin: 'dotfiles-dev-tools', key: 'tdd' } as const, initialTdd as TddState)
 const bosses = atom({ plugin: 'dotfiles-dev-tools', key: 'bosses' } as const, initialBosses as BossesState)
+const mailWatch = atom({ plugin: 'dotfiles-dev-tools', key: 'mailWatch' } as const, null as MailWatchState | null)
+const beast = atom({ plugin: 'dotfiles-dev-tools', key: 'beast' } as const, { isAwake: false } as BeastWatchState)
 
 const PANE = 'dispatch-board'
 const TITLE = 'Dispatch Board'
@@ -124,6 +182,17 @@ let usage: Usage | undefined
 let turn: Omit<TurnStats, 'durationMs'> | undefined
 /** This turn's Spinner Word, picked once at its start so the spinner does not flicker between words. */
 let spinner: string | undefined
+/** Sponsor Mail: when the Watched PR is next looked at, and the looks and posts in flight. */
+let mailDueAt = 0
+let mailLooks = 0
+let posting = 0
+/** Bumped when a post starts: a look begun before it may predate Claude's comment and is thrown away. */
+let postGen = 0
+/** Beast Watch: its timer, whether a look is in flight, and Beast's host for waking on use. */
+let beastTimer: { cancel: () => void } | undefined
+let isBeastLooking = false
+let beastTickCount = 0
+let beastHost: string | undefined
 
 // ------------------------------------------------------------------------------------- Dispatch Board
 
@@ -329,7 +398,9 @@ const MOOD_COLOR = { good: 'green', bad: 'red', waiting: 'gray' } as const
 // -------------------------------------------------------------------------------------- Crawler Points
 
 async function showScore($: EngineInterface): Promise<void> {
-  $.ui.status(statusLine(await read($, score), await read($, allTime), usage))
+  const b = await read($, beast)
+  const hud = statusLine(await read($, score), await read($, allTime), usage)
+  $.ui.status(b.isAwake && b.reading ? `${hud} · ${beastSegment(b.reading)}` : hud)
 }
 
 /** Toasts the award: a model-written line when one is allowed and arrives, the plain line otherwise. */
@@ -415,6 +486,221 @@ async function startPoints($: EngineInterface): Promise<void> {
   await showScore($)
 }
 
+// ------------------------------------------------------------------------------------------ Sponsor Mail
+
+const MAIL_TICK_MS = 30_000
+const MAIL_TITLE = 'Sponsor Mail'
+const GH_TIMEOUT_MS = 20_000
+
+async function tell($: EngineInterface, text: string, title: string): Promise<void> {
+  const sent = await $.ui.notify(text, { title }).catch(() => undefined)
+  if (!sent?.isSent) $.ui.toast(`${title}: ${text}`, { timeoutMs: TOAST_MS })
+}
+
+async function lookAtPr($: EngineInterface, w: Pick<MailWatch, 'url' | 'root'>): Promise<Pr | undefined> {
+  const r = await $.process.run(prQueryArgv(w.url), { cwd: w.root, timeoutMs: GH_TIMEOUT_MS })
+  return r.exitCode === 0 ? parsePr(r.stdout) : undefined
+}
+
+/** Starts the watch on the PR at `url`, or this branch's PR; says what came of it. */
+async function beginMail($: EngineInterface, url?: string): Promise<string> {
+  const root = (await $.process.run(['git', 'rev-parse', '--show-toplevel'])).stdout.trim()
+  if (!root) return 'Sponsor Mail: not inside a git repository.'
+  const found =
+    url ??
+    (await $.process.run(['gh', 'pr', 'view', '--json', 'url', '-q', '.url'], { cwd: root, timeoutMs: GH_TIMEOUT_MS }))
+      .stdout.trim()
+  if (!prRefOf(found)) return 'Sponsor Mail: no pull request for this branch.'
+  const pr = await lookAtPr($, { url: found, root })
+  if (!pr) return `Sponsor Mail: gh could not read ${found}.`
+  if (pr.state !== 'OPEN') return `Sponsor Mail: PR #${pr.number} is ${pr.state.toLowerCase()}; nothing to watch.`
+  const now = await $.clock.now()
+  const w = startWatch(pr, root, now)
+  await update($, mailWatch, () => w)
+  mailDueAt = now + nextPollMs(w, now)
+  return `Sponsor Mail: watching PR #${pr.number}.`
+}
+
+async function deliver($: EngineInterface, w: MailWatch, ev: MailEvent): Promise<void> {
+  switch (ev.kind) {
+    case 'mail':
+      return tell($, mailNotice(w, ev.mail), MAIL_TITLE)
+    case 'answered':
+      return award($, answeredAward(w, ev.count))
+    case 'red':
+      await tell($, redNotice(w, ev.names), MAIL_TITLE)
+      return award($, redAward(w, ev.names))
+    case 'green':
+      return $.ui.toast(`PR #${w.number}: every check is green`, { timeoutMs: TOAST_MS })
+    case 'merged':
+      return award($, mergeAward(w))
+    case 'closed':
+      return $.ui.toast(`PR #${w.number} was closed: Sponsor Mail stops watching it`, { timeoutMs: TOAST_MS })
+  }
+}
+
+/**
+ * One look at the Watched PR. `claim` follows a post of Claude's: the viewer's new comments are Claude's and
+ * never Mail. An unclaimed look that a post overlapped is thrown away, as it may hold Claude's comment unclaimed.
+ */
+async function lookMail($: EngineInterface, claim: boolean): Promise<void> {
+  const before = await read($, mailWatch)
+  if (!before) return
+  mailLooks++
+  const gen = postGen
+  try {
+    const branch = await $.process.run(['git', '-C', before.root, 'branch', '--show-current'])
+    const now = await $.clock.now()
+    const at = branch.stdout.trim()
+    if (branch.exitCode === 0 && at !== '' && at !== before.branch) {
+      await update($, mailWatch, () => null)
+      $.ui.toast(`Left ${before.branch}: Sponsor Mail stops watching PR #${before.number}`, { timeoutMs: TOAST_MS })
+      return
+    }
+    const pr = await lookAtPr($, before)
+    if (!claim && (gen !== postGen || posting > 0)) return
+    mailDueAt = now + nextPollMs(before, now)
+    const w = await read($, mailWatch)
+    if (!pr || !w || w.number !== pr.number) return
+    const r = step(claim ? claimMine(w, pr) : w, pr, now)
+    await update($, mailWatch, () => r.watch ?? null)
+    if (r.watch) mailDueAt = now + nextPollMs(r.watch, now)
+    for (const ev of r.events) await deliver($, w, ev)
+  } finally {
+    mailLooks--
+  }
+}
+
+function startMail($: EngineInterface): void {
+  mailDueAt = 0
+  $.clock.every(MAIL_TICK_MS, () => {
+    if (mailLooks > 0 || posting > 0) return
+    void $.clock
+      .now()
+      .then(now => (now >= mailDueAt ? lookMail($, false) : undefined))
+      .catch(() => undefined)
+  })
+}
+
+// ------------------------------------------------------------------------------------------- Beast Watch
+
+const BEAST_TICK_MS = 60_000
+/** Every this many ticks the look sends a token too: often enough to catch Wedged, rare enough to spare the cache. */
+const BEAST_TOKEN_EVERY = 5
+const BEAST_TITLE = 'Beast Watch'
+const PI_ENV = 'cat "${PI_IMPLEMENTER_HOME:-$HOME/.config/pi-implementer}/env" 2>/dev/null'
+
+async function piEnv($: EngineInterface): Promise<string> {
+  return (await $.process.run(['sh', '-c', PI_ENV])).stdout
+}
+
+/** curl to Beast's llama-server. The API key goes in on stdin (`-H @-`), never on argv where ps would show it. */
+async function curlBeast($: EngineInterface, key: string | undefined, ...args: string[]) {
+  return $.process.run(['curl', '-s', '-H', '@-', ...args], {
+    stdin: key ? `Authorization: Bearer ${key}\n` : '',
+    timeoutMs: 25_000,
+  })
+}
+
+/** The one-token probe, skipped while a Dispatch runs or a slot is generating, as it would queue behind them. */
+async function probeToken(
+  $: EngineInterface,
+  key: string | undefined,
+  url: string,
+  alias: string | undefined,
+): Promise<Probe['completion']> {
+  const query = alias ? `?model=${encodeURIComponent(alias)}` : ''
+  if ((watch?.running.size ?? 0) > 0 || isBusy((await curlBeast($, key, '-m', '5', `${url}/slots${query}`)).stdout)) {
+    return 'skipped'
+  }
+  const body = JSON.stringify({ ...(alias ? { model: alias } : {}), prompt: 'hi', max_tokens: 1 })
+  const r = await curlBeast($, key, '-m', '20', '-o', '/dev/null', '-w', '%{http_code}',
+    '-H', 'Content-Type: application/json', '-d', body, `${url}/v1/completions`)
+  return completionOf(r.exitCode, r.stdout)
+}
+
+/**
+ * One look at Beast: nvidia-smi over ssh, llama-server's /health and, on a router, the Dispatches' model; then,
+ * when that model is loaded and nothing would queue it, one token. `isQuick` leaves the token out.
+ */
+async function lookAtBeast($: EngineInterface, isQuick = false): Promise<Reading> {
+  const env = await piEnv($)
+  const url = llamaUrlOf(env)
+  const host = url && hostOf(url)
+  if (!url || !host) return { state: 'down', reason: 'no LLAMA_URL in pi-implementer env' }
+  beastHost = host
+  const key = llamaKeyOf(env)
+  const alias = modelAliasOf(env)
+  const [smi, health, models] = await Promise.all([
+    $.process.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host, SMI_QUERY], { timeoutMs: 15_000 }),
+    curlBeast($, key, '-m', '5', '-w', '\n%{http_code}', `${url}/health`),
+    curlBeast($, key, '-m', '5', `${url}/v1/models`),
+  ])
+  const probe: Probe = { smi, health: healthOf(health.stdout), model: modelStateOf(models.stdout, alias) }
+  // Never a token to a model that is not loaded: on a router it would load it, evicting whatever is.
+  const isProbed = !isQuick && smi.exitCode === 0 && probe.health.code === 200 && (probe.model ?? 'loaded') === 'loaded'
+  if (isProbed) probe.completion = await probeToken($, key, url, alias)
+  return judge(probe)
+}
+
+/** Looks at Beast, keeps the reading, and tells of it going Down or coming back. */
+async function checkBeast($: EngineInterface, isQuick = false): Promise<Reading> {
+  const looked = await lookAtBeast($, isQuick)
+  const before = (await read($, beast)).reading
+  // A look without the token cannot see Wedged: it leaves a Wedged Beast Wedged until a token gets through.
+  const r = isQuick && looked.state === 'up' && before?.reason === 'wedged' ? before : looked
+  await update($, beast, b => ({ ...b, reading: r }))
+  const t = transition(before, r)
+  if (t === 'down') await tell($, `Beast is Down: ${r.reason ?? 'unknown'}`, BEAST_TITLE)
+  else if (t === 'recovered') $.ui.toast('Beast is back Up', { timeoutMs: TOAST_MS })
+  await showScore($)
+  return r
+}
+
+function beastTicks($: EngineInterface): void {
+  beastTimer?.cancel()
+  beastTimer = $.clock.every(BEAST_TICK_MS, () => {
+    if (isBeastLooking) return
+    isBeastLooking = true
+    void checkBeast($, ++beastTickCount % BEAST_TOKEN_EVERY !== 0)
+      .catch(() => undefined)
+      .finally(() => {
+        isBeastLooking = false
+      })
+  })
+}
+
+/** The first use of Beast wakes the watch: a look now, and one a minute after. */
+async function wakeBeast($: EngineInterface): Promise<Reading> {
+  const b = await read($, beast)
+  if (!b.isAwake) {
+    await update($, beast, x => ({ ...x, isAwake: true }))
+    beastTicks($)
+  }
+  return checkBeast($)
+}
+
+const LOADING_POLL_S = 5
+
+/**
+ * The Beast Guard's verdict on a guarded line: a fresh look and, while Beast is Loading, a wait for it to end.
+ * The wait sleeps in a process, as time spent in `$` calls is not the hook's own.
+ */
+async function guardBeast($: EngineInterface, line: string): Promise<string | undefined> {
+  let r = await wakeBeast($)
+  for (let waited = 0; r.state === 'loading' && waited < LOADING_WAIT_MS; waited += LOADING_POLL_S * 1000) {
+    await $.process.run(['sleep', String(LOADING_POLL_S)])
+    r = await lookAtBeast($, true)
+  }
+  if (r.state !== 'loading') r = await checkBeast($)
+  const g = beastGuard(line, r)
+  if (g.kind === 'deny') return g.reason
+  if (g.kind === 'wait') {
+    return `Beast Guard: Beast is still Loading after ${LOADING_WAIT_MS / 60_000} minutes; try again soon.`
+  }
+  return undefined
+}
+
 // ------------------------------------------------------------------------------------------- the voice
 
 /** The Verdict for a Notable Turn: a model-written line when the quip writer is free, the plain one otherwise. */
@@ -447,7 +733,69 @@ export const register: Register = on => {
     await startPoints($)
     await startBoard($)
     await $.command.register({ name: 'tdd', description: 'Show or hide the TDD Band above the prompt' })
+    await $.command.register({ name: 'watch-pr', description: "Sponsor Mail: watch this branch's PR" })
+    await $.command.register({ name: 'unwatch-pr', description: 'Sponsor Mail: stop watching the PR' })
+    await $.command.register({ name: 'beast', description: "Beast Watch: look at Beast's health now" })
+    startMail($)
+    beastHost = hostOf(llamaUrlOf(await piEnv($)) ?? '')
+    if ((await read($, beast)).isAwake) beastTicks($)
     return next(e)
+  })
+
+  // -------------------------------------------------------------------------------------- Beast Guard
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (isGuarded(e.command)) {
+      const reason = await guardBeast($, e.command)
+      return reason ? { deny: reason } : next(e)
+    }
+    // Any other use of Beast wakes Beast Watch; a guarded line has just woken it.
+    if (isBeastUse(e.command, beastHost) && !(await read($, beast)).isAwake) {
+      $.clock.after(0, () => void wakeBeast($).catch(() => undefined))
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
+
+  on('command.run', { command: 'beast' }, async $ => {
+    const r = await wakeBeast($)
+    return { text: `${beastSegment(r)}${r.state === 'up' ? '' : ' (Beast Guard refuses Dispatches while Down)'}` }
+  })
+
+  // ------------------------------------------------------------------------------------- Sponsor Mail
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const isPosting = isPost(e.command) && (await read($, mailWatch)) !== null
+    if (isPosting) {
+      posting++
+      postGen++
+    }
+    let ran: Awaited<ReturnType<typeof next>>
+    try {
+      ran = await next(e)
+    } finally {
+      if (isPosting) posting--
+    }
+    const result = ran.result as { backgroundTaskId?: string; stdout?: string } | undefined
+    const isDone = ran.deny === undefined && ran.isError !== true && !result?.backgroundTaskId
+    try {
+      if (isDone && isPosting) await lookMail($, true)
+      else if (isDone && isPrCreate(e.command)) {
+        const url = result?.stdout?.match(/https:\/\/\S+\/pull\/\d+/)?.[0]
+        const toast = (text: string) => $.ui.toast(text, { timeoutMs: TOAST_MS })
+        $.clock.after(0, () => void beginMail($, url).then(toast).catch(() => undefined))
+      }
+    } catch {
+      // the line ran: a failed look leaves Sponsor Mail to its next tick
+    }
+    return ran
+  }).catch(($, e, next) => next(e))
+
+  on('command.run', { command: 'watch-pr' }, async $ => ({ text: await beginMail($) }))
+
+  on('command.run', { command: 'unwatch-pr' }, async $ => {
+    const w = await read($, mailWatch)
+    await update($, mailWatch, () => null)
+    return { text: w ? `Sponsor Mail: stopped watching PR #${w.number}.` : 'Sponsor Mail: no PR was watched.' }
   })
 
   // ------------------------------------------------------------------------------------- Podman Guard
@@ -504,8 +852,45 @@ export const register: Register = on => {
     if (e.props.hasSurvey) return next(e)
     const t = await read($, tdd)
     const fight = newestBoss(await read($, bosses))
-    if (!isShown(t) && !fight) return next(e)
+    const w = await read($, mailWatch)
+    if (!isShown(t) && !fight && !w) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
+    const checks = w && tally(w.checks)
+    const mailRow = w && checks && (
+      <Box key="mail" gap={1}>
+        <Text bold color="cyan">
+          📬 PR #{w.number}
+        </Text>
+        {checks.total > 0 && (
+          <Text color={checks.failed.length > 0 ? 'red' : checks.pending.length > 0 ? 'yellow' : 'green'}>
+            ✅ {checks.passed}/{checks.total}
+          </Text>
+        )}
+        {checks.pending.length > 0 && <Text color="yellow">⏳ {checks.pending.length}</Text>}
+        {checks.failed.length > 0 && (
+          <Text color="red" wrap="truncate-end">
+            ❌ {checks.failed.join(', ')}
+          </Text>
+        )}
+        {w.mail.length > 0 && <Text bold>💬 {w.mail.length} unanswered</Text>}
+        {w.mail.length > 0 && (
+          <Button
+            hotkey="a"
+            label="Address them"
+            plain
+            onPress={() => void $.prompt.submit({ text: addressPrompt(w) }).catch(() => undefined)}
+          />
+        )}
+        {checks.failed.length > 0 && (
+          <Button
+            hotkey="f"
+            label="Fix it"
+            plain
+            onPress={() => void $.prompt.submit({ text: fixPrompt(w) }).catch(() => undefined)}
+          />
+        )}
+      </Box>
+    )
     const v = verdictOf(t)
     const bossRow = fight && (
       <Box key="boss" gap={1}>
@@ -520,8 +905,7 @@ export const register: Register = on => {
         </Text>
       </Box>
     )
-    if (!isShown(t)) return bossRow ?? next(e)
-    const tddRow = (
+    const tddRow = isShown(t) && (
       <Box key="tdd" gap={1}>
         <Text bold color={TDD_COLOR[t.phase ?? 'NONE']}>
           {t.phase ? `${TDD_ICON[t.phase]} ${t.phase}` : '· TDD'}
@@ -540,14 +924,9 @@ export const register: Register = on => {
         ))}
       </Box>
     )
-    return bossRow ? (
-      <Box flexDirection="column">
-        {bossRow}
-        {tddRow}
-      </Box>
-    ) : (
-      tddRow
-    )
+    const rows = [bossRow, mailRow, tddRow].filter(r => !!r)
+    if (rows.length === 0) return next(e)
+    return rows.length === 1 ? rows[0]! : <Box flexDirection="column">{rows}</Box>
   })
 
   // ------------------------------------------------------------------------------------------ the voice

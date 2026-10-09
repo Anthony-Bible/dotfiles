@@ -201,3 +201,165 @@ describe('the Floor Boss', () => {
     expect((seen.store.get('crawler-points.unlocked') as string[]).some(a => a.startsWith('Slew '))).toBe(true)
   })
 })
+
+const ran = (stdout: string, exitCode = 0) => ({
+  value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+})
+
+// What the mod tells the Crawler: notifications (always delivered) and toasts.
+const told = (on: On) => {
+  const seen = { notes: [] as string[], toasts: [] as string[] }
+  on('ui.notify', async (_$, e) => {
+    seen.notes.push(e.text)
+    return { value: { isSent: true } } as never
+  })
+  on('ui.toast', async (_$, e) => {
+    seen.toasts.push(e.text)
+    return { value: undefined } as never
+  })
+  return seen
+}
+
+const START = { cwd: '/repo', surface: 'terminal', isInteractive: true } as const
+
+describe('Sponsor Mail', () => {
+  test("watches the PR gh pr create opened: Mail notifies, Claude's reply is not Mail but answers it", async ($, on) => {
+    const clock = mock.clock(on)
+    const seen = watch(on)
+    const tell = told(on)
+    const pr = {
+      state: 'OPEN',
+      comments: [{ databaseId: 1, author: { login: 'me' }, createdAt: '2026-10-09T10:00:00Z' }],
+    }
+    on('process.run', async (_$, e) => {
+      const args = e.argv.join(' ')
+      if (args.includes('--show-toplevel')) return ran('/repo\n')
+      if (args.includes('--show-current')) return ran('feat/x\n')
+      if (args.startsWith('gh api graphql')) {
+        const pullRequest = {
+          number: 45, url: 'https://github.com/o/r/pull/45', state: pr.state, headRefName: 'feat/x',
+          comments: { nodes: pr.comments }, reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+          commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [
+            { __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' },
+          ] } } } }] },
+        }
+        return ran(JSON.stringify({ data: { viewer: { login: 'me' }, repository: { pullRequest } } }))
+      }
+      return ran('', 1)
+    })
+    on('tool.call', { tool: 'Bash' }, async (_$, e) => {
+      if (e.command.startsWith('gh pr comment')) {
+        pr.comments.push({ databaseId: 3, author: { login: 'me' }, createdAt: '2026-10-09T10:05:00Z' })
+      }
+      const stdout = e.command.startsWith('gh pr create') ? 'https://github.com/o/r/pull/45\n' : ''
+      return { result: { stdout, stderr: '', interrupted: false } }
+    })
+    on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+      const { Box } = $.ui.resolve(e)
+      return <Box key="engine" />
+    })
+    const band = async () => {
+      const ui = await $.ui.mount({ plugin: 'dotfiles-dev-tools', surface: 'terminal', ...BAND })
+      const texts = [/PR #45/, /✅ 1\/1/, /unanswered/].map(async t => (await ui.find({ type: 'Text', text: t })) !== undefined)
+      const shown = await Promise.all(texts)
+      await ui.unmount()
+      return shown
+    }
+
+    on('session.start', async (_$, e) => ({ cwd: e.cwd })) // the engine's start: nothing to do
+    on('command.register', async () => ({ value: {} as never }))
+    on('session.usage', async () => ({ value: { context: { percent: 1 }, rateLimits: [] } as never }))
+    await $.session.start(START)
+    await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill' })
+    await clock.settle()
+    expect(await band()).toEqual([true, true, false]) // the comment already there is no Mail
+
+    pr.comments.push({ databaseId: 2, author: { login: 'copilot' }, createdAt: '2026-10-09T10:01:00Z' })
+    await clock.advance(120_000)
+    expect(tell.notes).toEqual(['1 new on PR #45 from copilot'])
+    expect(await band()).toEqual([true, true, true])
+
+    const cp = () => Number(seen.statuses.at(-1)?.match(/^🎟 (-?\d+) CP/)?.[1])
+    const before = cp()
+    await $.tool.call({ tool: 'Bash', command: 'gh pr comment 45 --body "fixed"' })
+    expect(tell.notes).toHaveLength(1) // Claude's own reply is never Mail
+    expect(await band()).toEqual([true, true, false])
+    expect(cp() - before).toBe(5) // the Mail it answered
+
+    pr.state = 'MERGED'
+    await clock.advance(600_000)
+    expect(seen.store.get('crawler-points.unlocked')).toContain('Sponsored Content')
+    expect(await band()).toEqual([false, false, false])
+  })
+})
+
+describe('the Beast Guard', () => {
+  test('refuses a Dispatch while Beast is Down unless it carries the Escape Hatch, and tells of it once', async ($, on) => {
+    mock.clock(on)
+    const seen = watch(on)
+    const tell = told(on)
+    let smi = { exitCode: 15, stdout: '', stderr: 'Unable to determine the device handle for GPU0: GPU is lost.' }
+    on('process.run', async (_$, e) => {
+      const args = e.argv.join(' ')
+      if (args.includes('pi-implementer')) return ran('LLAMA_URL=http://10.0.0.9:8080\n')
+      if (e.argv[0] === 'ssh') return { value: { ...smi, isStdoutTruncated: false, isStderrTruncated: false } }
+      if (args.endsWith('/health')) return ran('{"status":"ok"}\n200')
+      if (args.endsWith('/slots')) return ran('[]')
+      if (args.endsWith('/v1/completions')) return ran('200')
+      return ran('', 1)
+    })
+    const dispatched: string[] = []
+    on('tool.call', { tool: 'Bash' }, async (_$, e) => {
+      dispatched.push(e.command)
+      return { result: { stdout: '', stderr: '', interrupted: false } }
+    })
+    const line = 'python3 pi-dispatch.py dispatch t.md'
+
+    const denied = await $.tool.call({ tool: 'Bash', command: line })
+    expect(denied.deny).toContain('GPU lost')
+    expect(tell.notes).toEqual(['Beast is Down: GPU lost'])
+    expect(seen.statuses.at(-1)).toMatch(/beast 🔴 GPU lost$/)
+
+    await $.tool.call({ tool: 'Bash', command: `BEAST_OK=1 ${line}` })
+    expect(dispatched).toEqual([`BEAST_OK=1 ${line}`])
+    expect(tell.notes).toHaveLength(1)
+
+    smi = { exitCode: 0, stdout: '21034, 24576\n', stderr: '' }
+    await $.tool.call({ tool: 'Bash', command: line })
+    expect(dispatched.at(-1)).toBe(line)
+    expect(tell.toasts).toContain('Beast is back Up')
+    expect(seen.statuses.at(-1)).toMatch(/beast 🟢 21\/24GB$/)
+  })
+
+  test('holds a Dispatch while its model is Loading and lets it go once loaded, never probing it before', async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    let sleeps = 0
+    const probed: string[] = []
+    on('process.run', async (_$, e) => {
+      const args = e.argv.join(' ')
+      if (args.includes('pi-implementer')) return ran('LLAMA_URL=http://10.0.0.9:8080\nMODEL_ALIAS=blend\n')
+      if (e.argv[0] === 'sleep') {
+        sleeps++
+        return ran('')
+      }
+      if (e.argv[0] === 'ssh') return ran('21034, 24576\n')
+      if (args.endsWith('/health')) return ran('{"status":"ok"}\n200')
+      if (args.endsWith('/v1/models')) {
+        const value = sleeps >= 2 ? 'loaded' : 'loading'
+        return ran(JSON.stringify({ data: [{ id: 'blend', status: { value } }] }))
+      }
+      if (args.includes('/slots')) return ran('[]')
+      if (args.endsWith('/v1/completions')) {
+        probed.push(sleeps >= 2 ? 'loaded' : 'loading')
+        return ran('200')
+      }
+      return ran('', 1)
+    })
+    bash(on, () => false)
+    const r = await $.tool.call({ tool: 'Bash', command: 'pi-dispatch.py dispatch t.md' })
+    expect(r.deny).toBeUndefined()
+    expect(sleeps).toBe(2)
+    expect(probed).toEqual(['loaded'])
+  })
+})
