@@ -118,4 +118,32 @@ describe('guard', () => {
       expect(guard(line)).toEqual({ kind: 'pass' })
     expect(guard('docker context ls -e DOCKER_OK=1').kind).toBe('deny')
   })
+
+  test('a heredoc body is document text, never a command, whatever its delimiter is quoted as', () => {
+    const r = rng(9)
+    const BODIES = ['covers only the `docker` ecosystem', '(docker + gomod)', 'docker run x', '$(docker ps)', 'echo; docker context ls', 'package-ecosystem: docker']
+    const OPENERS = [(d: string) => `<<${d}`, (d: string) => `<<'${d}'`, (d: string) => `<<"${d}"`, (d: string) => `<< ${d}`, (d: string) => `<<-${d}`]
+    for (let i = 0; i < RUNS; i++) {
+      const delim = pick(r, ['EOF', 'END_DOC', 'X'])
+      const opener = pick(r, OPENERS)(delim)
+      const tab = opener.startsWith('<<-') ? '\t' : ''
+      const body = Array.from({ length: 1 + Math.floor(r() * 3) }, () => tab + pick(r, BODIES)).join('\n')
+      expect(guard(`cat > f.md ${opener}\n${body}\n${tab}${delim}`)).toEqual({ kind: 'pass' })
+    }
+    expect(guard('cat <<-EOF > f\n\tdocker run x\n\tEOF')).toEqual({ kind: 'pass' })
+  })
+
+  test('the command after a heredoc body, and a here-string, are still commands', () => {
+    expect(guard("cat > f <<'EOF'\ndocker run x\nEOF\ndocker build .")).toEqual({
+      kind: 'rewrite',
+      command: "cat > f <<'EOF'\ndocker run x\nEOF\npodman build .",
+    })
+    expect(guard('cat <<A <<B\ndocker a\nA\ndocker b\nB\ndocker ps')).toEqual({
+      kind: 'rewrite',
+      command: 'cat <<A <<B\ndocker a\nA\ndocker b\nB\npodman ps',
+    })
+    expect(guard("docker build . <<<'x'")).toEqual({ kind: 'rewrite', command: "podman build . <<<'x'" })
+    expect(guard("cat <<<'x'\ndocker ps")).toEqual({ kind: 'rewrite', command: "cat <<<'x'\npodman ps" })
+    expect(guard('cat <<EOF | docker load\nbody\nEOF')).toEqual({ kind: 'rewrite', command: 'cat <<EOF | podman load\nbody\nEOF' })
+  })
 })

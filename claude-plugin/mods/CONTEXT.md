@@ -75,6 +75,15 @@ _Avoid_: stage, mode
 The strip above the prompt that shows the TDD Phase and the last Check's result.
 _Avoid_: TDD bar, TDD pane
 
+**Floor Boss**:
+A named foe that appears when the same Check command comes out red three times in a row, and stays until that command goes green.
+_Avoid_: boss fight, blocker
+
+**Boss HP**:
+How many tests the Floor Boss's Check command last reported failing. A red run whose output doesn't say leaves it
+unchanged, since a run that never reached the tests is no progress; a boss summoned by one starts at 1.
+_Avoid_: health, lives
+
 ### Containers
 
 **Podman Guard**:
@@ -88,6 +97,20 @@ _Avoid_: override, bypass
 **Daemon-Only Command**:
 A Docker command podman can't stand in for, such as contexts, swarm or a docker.sock mount.
 _Avoid_: unsupported command
+
+### Git
+
+**Protected Branch**:
+A repository's default branch, plus `main` and `master`, which commits and pushes never land on directly.
+_Avoid_: trunk, base branch
+
+**Branch Guard**:
+The rule that Claude doesn't commit on a Protected Branch or push to one, unless the command carries the Branch Escape Hatch.
+_Avoid_: main blocker
+
+**Branch Escape Hatch**:
+A `BRANCH_OK=1` prefix that marks a commit or push as meant for a Protected Branch, so the Branch Guard leaves it alone.
+_Avoid_: override, bypass
 
 ### pi-implementer
 
@@ -105,8 +128,10 @@ _Avoid_: result, status
 - A green **Check** extends the **Streak** and clears the **Debuff**; a red **Check** resets the **Streak**
 - A **Dungeon Collapse** costs Crawler Points and applies the Amnesia **Debuff**; a **Strategic Retreat** earns them
 - Starting a TDD subagent sets the **TDD Phase**; a **Check** confirms it, or flags that it broke
+- Three red **Check**s in a row of one command summon a **Floor Boss**; that command's next green **Check** slays it for an **Award** and an **Achievement** named after it
 - A **Dispatch**'s **Fate** becomes an **Award**
 - A command with the **Docker Escape Hatch** passes through the **Podman Guard**, while a **Daemon-Only Command** without the hatch is refused
+- A commit or push to a **Protected Branch** is refused by the **Branch Guard** unless it carries the **Branch Escape Hatch**
 
 ## Example dialogue
 
