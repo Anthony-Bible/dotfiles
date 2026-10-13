@@ -40,6 +40,28 @@ export type BossesState = {
   summoned: number
 }
 
+export type CheckRunState = { name: string; state: 'pass' | 'fail' | 'pending' }
+
+export type MailWatchState = {
+  number: number
+  url: string
+  branch: string
+  root: string
+  seen: string[]
+  mine: string[]
+  mail: { id: string; author: string }[]
+  checks: CheckRunState[]
+  changedAt: number
+}
+
+export type BeastReadingState = {
+  state: 'up' | 'loading' | 'down'
+  reason?: string
+  vram?: { usedMb: number; totalMb: number }
+}
+
+export type BeastWatchState = { isAwake: boolean; reading?: BeastReadingState }
+
 declare module 'claude-code' {
   interface PluginState {
     'dotfiles-dev-tools': {
@@ -48,6 +70,8 @@ declare module 'claude-code' {
       allTime: number
       tdd: TddState
       bosses: BossesState
+      mailWatch: MailWatchState | null
+      beast: BeastWatchState
     }
   }
 }
