@@ -6,7 +6,7 @@ import {
   beastSegment,
   healthOf,
   hostOf,
-  isBusy,
+  isIdle,
   isBeastUse,
   isDispatch,
   judge,
@@ -64,11 +64,13 @@ describe('the Beast State', () => {
     expect(judge({ health: { code: 0, body: '' }, smi: SMI_OK })).toMatchObject({ state: 'down', reason: 'llama-server unreachable' })
     expect(judge({ health: { code: 500, body: '' }, smi: SMI_OK })).toMatchObject({ state: 'down', reason: 'health 500' })
     expect(judge({ health: HEALTH_OK, smi: SMI_OK, completion: 'timeout' })).toMatchObject({ state: 'down', reason: 'wedged' })
+    // A loaded model that answers the token with an error cannot serve a Dispatch either.
+    expect(judge({ health: HEALTH_OK, smi: SMI_OK, completion: 'error' })).toMatchObject({ state: 'down', reason: 'completion failed' })
     // A router serves models by name: its /health is 200 while the Dispatches' model is still loading.
     expect(judge({ health: HEALTH_OK, smi: SMI_OK, model: 'loading' })).toMatchObject({ state: 'loading' })
     expect(judge({ health: HEALTH_OK, smi: SMI_OK, model: 'missing' })).toMatchObject({ state: 'down', reason: 'model not served' })
     expect(judge({ health: HEALTH_OK, smi: SMI_OK, model: 'failed' })).toMatchObject({ state: 'down', reason: 'model failed to load' })
-    for (const completion of ['ok', 'skipped', 'error', undefined] as const) {
+    for (const completion of ['ok', 'skipped', undefined] as const) {
       expect(judge({ health: HEALTH_OK, smi: SMI_OK, completion })).toEqual({ state: 'up', vram: { usedMb: 21034, totalMb: 24576 } })
     }
   })
@@ -98,11 +100,14 @@ describe('the Beast Guard', () => {
     'python3 ~/.claude/plugins/x/pi-dispatch.py dispatch .hybrid/tickets/01.md',
     'cd repo && uv run pi-dispatch.py dispatch t.md --timeout 900',
     '/abs/scripts/pi-dispatch.py dispatch t.md 2>&1 | tail -5',
+    'timeout 900 python3 -u pi-dispatch.py dispatch t.md',
   ]
   const OTHERS = [
     'python3 pi-dispatch.py ledger',
     'python3 pi-dispatch.py land 3',
     'echo "pi-dispatch.py dispatch t.md"',
+    'echo pi-dispatch.py dispatch t.md',
+    'rg -n pi-dispatch.py dispatch',
     'go test ./...',
   ]
 
@@ -154,9 +159,11 @@ describe("what Beast's probes answer", () => {
     expect(healthOf('')).toEqual({ code: 0, body: '' })
   })
 
-  test('a slot generating makes llama-server busy; the API key comes from the env file', () => {
-    expect(isBusy('[{"id":0,"is_processing":true}]')).toBe(true)
-    expect(isBusy('[{"id":0,"is_processing": false}]')).toBe(false)
+  test('llama-server is idle only when /slots lists its slots and none is generating; the key is in the env file', () => {
+    expect(isIdle('[{"id":0,"is_processing":true}]')).toBe(false)
+    expect(isIdle('[{"id":0,"is_processing": false}]')).toBe(true)
+    // An error, a refusal or no answer says nothing of the slots: not idle.
+    for (const bad of ['{"error":{"code":401}}', '', 'Unauthorized', '{"is_processing":false}']) expect(isIdle(bad)).toBe(false)
     expect(llamaKeyOf('LLAMA_URL=x\nexport LLAMA_API_KEY="sk-1"\n')).toBe('sk-1')
     expect(llamaKeyOf('LLAMA_URL=x\n')).toBeUndefined()
   })

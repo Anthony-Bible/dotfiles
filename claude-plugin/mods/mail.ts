@@ -234,12 +234,19 @@ export const isPrCreate = (line: string): boolean =>
 
 const WRITE_FLAGS = new Set(['-f', '-F', '--field', '--raw-field', '--input'])
 
+/** A GraphQL call through gh writes when its query is a mutation; a query from a file or stdin may be one. */
+const isMutation = (text: string): boolean => {
+  const query = text.match(/(?:-[fF]|--(?:raw-)?field)[\s=]+['"]?query=['"]?\s*(\S*)/)
+  if (!query) return /(?:^|\s)--input\b/.test(text)
+  return /^(?:mutation\b|@)/.test(query[1]!)
+}
+
 /** The line posts to GitHub as the viewer: a PR comment or review, or a write through gh api. */
 export const isPost = (line: string): boolean =>
   ghCommands(line).some(({ args: a, text }) => {
     if (a[0] === 'pr') return a[1] === 'comment' || a[1] === 'review'
     if (a[0] !== 'api') return false
-    if (a.includes('graphql')) return /\bmutation\b/.test(text)
+    if (a.includes('graphql')) return isMutation(text)
     const method = a.findIndex(x => x === '-X' || x === '--method')
     if (method >= 0) return (a[method + 1] ?? '').toUpperCase() !== 'GET'
     const attached = a.find(x => /^(?:-X|--method=)/.test(x) && x.length > 2)

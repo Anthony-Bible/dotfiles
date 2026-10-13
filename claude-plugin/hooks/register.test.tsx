@@ -362,4 +362,44 @@ describe('the Beast Guard', () => {
     expect(sleeps).toBe(2)
     expect(probed).toEqual(['loaded'])
   })
+
+  // An Up Beast with a loaded model: what each guarded Dispatch costs it.
+  const upBeast = (on: On, slots: string) => {
+    const calls = { ssh: 0, completions: 0 }
+    on('process.run', async (_$, e) => {
+      const args = e.argv.join(' ')
+      if (args.includes('pi-implementer')) return ran('LLAMA_URL=http://10.0.0.9:8080\nMODEL_ALIAS=blend\n')
+      if (e.argv[0] === 'ssh') {
+        calls.ssh++
+        return ran('21034, 24576\n')
+      }
+      if (args.endsWith('/health')) return ran('{"status":"ok"}\n200')
+      if (args.endsWith('/v1/models')) return ran(JSON.stringify({ data: [{ id: 'blend', status: { value: 'loaded' } }] }))
+      if (args.includes('/slots')) return ran(slots)
+      if (args.endsWith('/v1/completions')) {
+        calls.completions++
+        return ran('200')
+      }
+      return ran('', 1)
+    })
+    return calls
+  }
+
+  test('looks at an Up Beast once per Dispatch, token and all', async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    const calls = upBeast(on, '[{"id":0,"is_processing":false}]')
+    bash(on, () => false)
+    expect((await $.tool.call({ tool: 'Bash', command: 'pi-dispatch.py dispatch t.md' })).deny).toBeUndefined()
+    expect(calls).toEqual({ ssh: 1, completions: 1 })
+  })
+
+  test('sends no token when /slots cannot say the slots are idle', async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    const calls = upBeast(on, '{"error":{"code":401,"message":"Invalid API Key"}}')
+    bash(on, () => false)
+    expect((await $.tool.call({ tool: 'Bash', command: 'pi-dispatch.py dispatch t.md' })).deny).toBeUndefined()
+    expect(calls.completions).toBe(0)
+  })
 })

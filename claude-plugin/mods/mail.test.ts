@@ -253,6 +253,8 @@ describe('the Bash lines Sponsor Mail reads', () => {
       'gh api repos/{owner}/{repo}/pulls/42/comments/1/replies -f body="fixed"',
       'gh api -X PATCH repos/o/r/issues/comments/1 --input b.json',
       `gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {}) { comment { id } } }'`,
+      `gh api graphql --raw-field query='\n  mutation Reply { x }'`,
+      'gh api graphql -F query=@reply.graphql -F id=1',
     ]) {
       expect(isPost(line)).toBe(true)
     }
@@ -263,6 +265,7 @@ describe('the Bash lines Sponsor Mail reads', () => {
       'gh api -X GET search/issues -f q=x',
       'echo "gh pr comment 1"',
       `echo mutation && gh api graphql -f query='query { viewer { login } }'`,
+      `gh api graphql -f query='query($q: String!) { search(query: $q) { issueCount } }' -F q=mutation`,
     ]) {
       expect(isPost(line)).toBe(false)
     }

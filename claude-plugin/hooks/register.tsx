@@ -97,7 +97,7 @@ import {
   healthOf,
   hostOf,
   isBeastUse,
-  isBusy,
+  isIdle,
   isGuarded,
   judge,
   llamaKeyOf,
@@ -602,7 +602,7 @@ async function curlBeast($: EngineInterface, key: string | undefined, ...args: s
   })
 }
 
-/** The one-token probe, skipped while a Dispatch runs or a slot is generating, as it would queue behind them. */
+/** The one-token probe, skipped unless /slots shows every slot idle and no Dispatch runs: it would queue behind them. */
 async function probeToken(
   $: EngineInterface,
   key: string | undefined,
@@ -610,7 +610,7 @@ async function probeToken(
   alias: string | undefined,
 ): Promise<Probe['completion']> {
   const query = alias ? `?model=${encodeURIComponent(alias)}` : ''
-  if ((watch?.running.size ?? 0) > 0 || isBusy((await curlBeast($, key, '-m', '5', `${url}/slots${query}`)).stdout)) {
+  if ((watch?.running.size ?? 0) > 0 || !isIdle((await curlBeast($, key, '-m', '5', `${url}/slots${query}`)).stdout)) {
     return 'skipped'
   }
   const body = JSON.stringify({ ...(alias ? { model: alias } : {}), prompt: 'hi', max_tokens: 1 })
@@ -688,11 +688,13 @@ const LOADING_POLL_S = 5
  */
 async function guardBeast($: EngineInterface, line: string): Promise<string | undefined> {
   let r = await wakeBeast($)
-  for (let waited = 0; r.state === 'loading' && waited < LOADING_WAIT_MS; waited += LOADING_POLL_S * 1000) {
+  let waited = 0
+  for (; r.state === 'loading' && waited < LOADING_WAIT_MS; waited += LOADING_POLL_S * 1000) {
     await $.process.run(['sleep', String(LOADING_POLL_S)])
     r = await lookAtBeast($, true)
   }
-  if (r.state !== 'loading') r = await checkBeast($)
+  // The wait looked without the token: one full look now that it is over.
+  if (waited > 0 && r.state !== 'loading') r = await checkBeast($)
   const g = beastGuard(line, r)
   if (g.kind === 'deny') return g.reason
   if (g.kind === 'wait') {

@@ -67,6 +67,7 @@ export const judge = (p: Probe): Reading => {
   if (p.model === 'missing') return { state: 'down', reason: 'model not served' }
   if (p.model === 'failed') return { state: 'down', reason: 'model failed to load' }
   if (p.completion === 'timeout') return { state: 'down', reason: 'wedged' }
+  if (p.completion === 'error') return { state: 'down', reason: 'completion failed' }
   return { state: 'up', vram }
 }
 
@@ -91,14 +92,17 @@ export const transition = (before: Reading | undefined, after: Reading): 'down' 
 
 const PI_DISPATCH = /(?:^|\/)pi-dispatch(?:\.py)?$/
 
-/** The line starts a Dispatch: `pi-dispatch.py dispatch`, however the script is run. */
+/** Commands that run the script they are handed; any other command naming it (echo, rg) only mentions it. */
+const RUNNER = /(?:^|\/)(?:python[\d.]*|uv|uvx|env|timeout|nice|nohup|time|exec)$/
+
+/** The line starts a Dispatch: `pi-dispatch.py dispatch`, run directly or through a runner. */
 export const isDispatch = (line: string): boolean => {
   const ws = words(line)
   return ws.some((w, i) => {
     if (!w.isCommand) return false
     const run = [w, ...argsOf(ws, i)]
     const k = run.findIndex(x => PI_DISPATCH.test(x.text))
-    return k >= 0 && run[k + 1]?.text === 'dispatch'
+    return k >= 0 && (k === 0 || RUNNER.test(w.text)) && run[k + 1]?.text === 'dispatch'
   })
 }
 
@@ -140,8 +144,15 @@ export const healthOf = (stdout: string): Probe['health'] => {
 export const completionOf = (exitCode: number, stdout: string): NonNullable<Probe['completion']> =>
   exitCode === 28 ? 'timeout' : exitCode === 0 && stdout.trim() === '200' ? 'ok' : 'error'
 
-/** llama-server's /slots answer says a slot is generating: a completion probe would queue behind it. */
-export const isBusy = (slotsJson: string): boolean => /"is_processing"\s*:\s*true/.test(slotsJson)
+/** llama-server's /slots answer lists its slots and none is generating, so a completion probe would not queue. */
+export const isIdle = (slotsJson: string): boolean => {
+  try {
+    const slots: unknown = JSON.parse(slotsJson)
+    return Array.isArray(slots) && slots.every(s => (s as { is_processing?: unknown })?.is_processing !== true)
+  } catch {
+    return false
+  }
+}
 
 /** The model's state in a router's /v1/models; undefined when the server is no router or did not answer. */
 export const modelStateOf = (modelsJson: string, alias: string | undefined): ModelState | undefined => {
