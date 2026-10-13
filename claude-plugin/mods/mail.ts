@@ -23,6 +23,8 @@ export type Pr = {
   viewer: string
   checks: Check[]
   items: Item[]
+  /** GitHub holds more comments than the look fetched: an item missing from it may still be there. */
+  isTruncated?: boolean
 }
 
 export type MailEntry = { id: string; author: string }
@@ -54,9 +56,10 @@ export type MailEvent =
 
 /** One GraphQL call answers everything a poll needs; `$n` is the PR's number. */
 export const PR_QUERY = `query($owner:String!,$repo:String!,$n:Int!){viewer{login} repository(owner:$owner,name:$repo){pullRequest(number:$n){number url state headRefName
-comments(last:100){nodes{databaseId author{login} createdAt}}
-reviews(last:100){nodes{databaseId author{login} createdAt body}}
-reviewThreads(last:100){nodes{isResolved comments(first:100){nodes{databaseId author{login} createdAt}}}}
+comments(last:100){totalCount nodes{databaseId author{login} createdAt}}
+reviews(last:100){totalCount nodes{databaseId author{login} createdAt body}}
+reviewThreads(last:100){totalCount nodes{isResolved root:comments(first:1){nodes{databaseId}}
+comments(last:100){totalCount nodes{databaseId author{login} createdAt}}}}
 commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}}}`
 
 /** A PR's URL as `{ owner, repo, number }`, or undefined for anything else. */
@@ -76,6 +79,10 @@ export const prQueryArgv = (url: string): string[] => {
 }
 
 type Node = { databaseId?: number; author?: { login?: string } | null; createdAt?: string; body?: string }
+type Connection<T> = { totalCount?: number; nodes?: T[] }
+type Thread = { isResolved?: boolean; root?: Connection<Node>; comments?: Connection<Node> }
+
+const isCut = (c: Connection<unknown> | undefined): boolean => (c?.totalCount ?? 0) > (c?.nodes?.length ?? 0)
 
 const PASSING = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED'])
 
@@ -109,14 +116,15 @@ export const parsePr = (text: string): Pr | undefined => {
   }
   const p = d?.data?.repository?.pullRequest
   if (!p || typeof p.number !== 'number') return undefined
-  const threads: { isResolved?: boolean; comments?: { nodes?: Node[] } }[] = p.reviewThreads?.nodes ?? []
+  const threads: Thread[] = p.reviewThreads?.nodes ?? []
   const items: Item[] = [
     ...((p.comments?.nodes ?? []) as Node[]).map(n => itemOf('c', n)),
     // A review with no body is the wrapper GitHub makes around thread comments; the comments are the items.
     ...((p.reviews?.nodes ?? []) as Node[]).filter(n => (n.body ?? '').trim() !== '').map(n => itemOf('r', n)),
     ...threads.flatMap(t => {
       const nodes = t.comments?.nodes ?? []
-      const thread = nodes[0] ? `t:${nodes[0].databaseId}` : undefined
+      const first = t.root?.nodes?.[0] ?? nodes[0]
+      const thread = first ? `t:${first.databaseId}` : undefined
       return nodes.map(n => itemOf('t', n, { thread, isResolved: t.isResolved === true }))
     }),
   ]
@@ -129,6 +137,7 @@ export const parsePr = (text: string): Pr | undefined => {
     viewer: String(d.data.viewer?.login ?? ''),
     checks: contexts.map(checkOf).filter((c): c is Check => c !== undefined),
     items,
+    isTruncated: [p.comments, p.reviews, p.reviewThreads, ...threads.map(t => t.comments)].some(isCut),
   }
 }
 
@@ -181,7 +190,9 @@ export const step = (w: MailWatch, pr: Pr, now: number): { watch?: MailWatch; ev
 
   const open = (m: MailEntry) => {
     const item = byId.get(m.id)
-    return item !== undefined && !isAnswered(item, pr, mine)
+    // Mail a truncated look no longer shows has only fallen out of it; a whole look without it says it is gone.
+    if (item === undefined) return pr.isTruncated === true
+    return !isAnswered(item, pr, mine)
   }
   const answered = w.mail.filter(m => byId.has(m.id) && !open(m)).length
   if (answered > 0) events.push({ kind: 'answered', count: answered })
@@ -231,6 +242,30 @@ const ghCommands = (line: string): { args: string[]; text: string }[] => {
 
 export const isPrCreate = (line: string): boolean =>
   ghCommands(line).some(({ args: a }) => a[0] === 'pr' && a[1] === 'create')
+
+/**
+ * The directory the line's gh pr create runs in, from the cds before it: undefined when none moved, null when the
+ * shell computes it (a variable, a substitution, `cd -`).
+ */
+export const createDirOf = (line: string): string | null | undefined => {
+  const ws = words(line)
+  const at = ws.findIndex((w, i) => {
+    const a = argsOf(ws, i)
+    return w.isCommand && w.text === 'gh' && a[0]?.text === 'pr' && a[1]?.text === 'create'
+  })
+  let dir: string | null | undefined
+  for (let i = 0; i < at; i++) {
+    if (!ws[i]!.isCommand || ws[i]!.text !== 'cd') continue
+    const arg = argsOf(ws, i).find(a => a.text === '-' || !a.text.startsWith('-'))
+    const to = arg?.text ?? '~'
+    // The words drop a substitution's `$(`; the line between cd and its argument still holds it.
+    const raw = line.slice(ws[i]!.end, arg?.end ?? ws[i]!.end)
+    if (to === '-' || /[$`\x00"'*?\\()]/.test(raw)) dir = null
+    else if (/^[/~]/.test(to) || dir === undefined) dir = to
+    else if (dir !== null) dir = `${dir}/${to}`
+  }
+  return dir
+}
 
 const WRITE_FLAGS = new Set(['-f', '-F', '--field', '--raw-field', '--input'])
 

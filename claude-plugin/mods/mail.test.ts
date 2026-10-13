@@ -3,6 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import {
   addressPrompt,
   claimMine,
+  createDirOf,
   fixPrompt,
   isPost,
   isPrCreate,
@@ -99,6 +100,7 @@ describe('the Watched PR as GitHub reports it', () => {
       },
     })
     const p = parsePr(json)
+    expect(p?.isTruncated).toBe(false)
     expect(p?.number).toBe(41)
     expect(p?.viewer).toBe(VIEWER)
     expect(p?.items.map(i => i.id).sort()).toEqual(['c:1', 'r:2', 't:4', 't:5'])
@@ -268,6 +270,54 @@ describe('the Bash lines Sponsor Mail reads', () => {
       `gh api graphql -f query='query($q: String!) { search(query: $q) { issueCount } }' -F q=mutation`,
     ]) {
       expect(isPost(line)).toBe(false)
+    }
+  })
+})
+
+describe('where gh pr create ran', () => {
+  test("is the directory the line's cds moved to before it; none is undefined, one the line computes is null", () => {
+    expect(createDirOf('gh pr create --fill')).toBeUndefined()
+    expect(createDirOf('cd ../other && gh pr create --fill')).toBe('../other')
+    expect(createDirOf('cd /abs && cd sub && gh pr create')).toBe('/abs/sub')
+    expect(createDirOf('cd a; cd ~/b && gh pr create')).toBe('~/b')
+    expect(createDirOf('gh pr create && cd elsewhere')).toBeUndefined()
+    expect(createDirOf('cd -P /tmp && gh pr create')).toBe('/tmp')
+    expect(createDirOf('cd - && gh pr create')).toBeNull()
+    expect(createDirOf('cd "$DIR" && gh pr create')).toBeNull()
+    expect(createDirOf('cd $(git rev-parse --show-toplevel)/x && gh pr create')).toBeNull()
+  })
+})
+
+describe('a PR bigger than one look', () => {
+  const answer = (pullRequest: object) => JSON.stringify({ data: { viewer: { login: VIEWER }, repository: { pullRequest } } })
+
+  test('is truncated when GitHub holds more than it sent, and a long thread keeps its first comment as its id', () => {
+    const p = parsePr(answer({
+      number: 42, state: 'OPEN', headRefName: 'feat/x',
+      comments: { totalCount: 101, nodes: [{ databaseId: 1, author: { login: 'x' }, createdAt: 'a' }] },
+      reviewThreads: { totalCount: 1, nodes: [{
+        isResolved: false,
+        root: { nodes: [{ databaseId: 7 }] },
+        comments: { totalCount: 150, nodes: [{ databaseId: 9, author: { login: 'x' }, createdAt: 'b' }] },
+      }] },
+    }))
+    expect(p?.isTruncated).toBe(true)
+    expect(p?.items.find(i => i.id === 't:9')?.thread).toBe('t:7')
+    const whole = parsePr(answer({ number: 42, state: 'OPEN', comments: { totalCount: 0, nodes: [] } }))
+    expect(whole?.isTruncated).toBe(false)
+  })
+
+  test('keeps unanswered Mail a truncated look no longer shows; a whole look that lacks it lets it go', () => {
+    const r = rng(9)
+    for (let i = 0; i < RUNS; i++) {
+      const old = { ...item(r), author: 'someone-else' }
+      let w = startWatch(pr([]), '/repo', 0)
+      w = step(w, pr([old]), 1).watch!
+      expect(w.mail.map(m => m.id)).toEqual([old.id])
+      const later = { ...pr([item(r)]), isTruncated: r() < 0.5 }
+      const next = step({ ...w, seen: [...w.seen, ...later.items.map(x => x.id)] }, later, 2)
+      expect(next.watch!.mail.map(m => m.id)).toEqual(later.isTruncated ? [old.id] : [])
+      expect(next.events.some(e => e.kind === 'answered')).toBe(false)
     }
   })
 })

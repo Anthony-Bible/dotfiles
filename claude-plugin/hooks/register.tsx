@@ -72,6 +72,7 @@ import {
   addressPrompt,
   answeredAward,
   claimMine,
+  createDirOf,
   fixPrompt,
   isPost,
   isPrCreate,
@@ -502,9 +503,18 @@ async function lookAtPr($: EngineInterface, w: Pick<MailWatch, 'url' | 'root'>):
   return r.exitCode === 0 ? parsePr(r.stdout) : undefined
 }
 
-/** Starts the watch on the PR at `url`, or this branch's PR; says what came of it. */
-async function beginMail($: EngineInterface, url?: string): Promise<string> {
-  const root = (await $.process.run(['git', 'rev-parse', '--show-toplevel'])).stdout.trim()
+/** The repository root of the directory in `$1`, with a leading `~` as $HOME. */
+const TOPLEVEL_OF = 'd=$1; case $d in "~"*) d=$HOME${d#"~"};; esac; cd -- "$d" && git rev-parse --show-toplevel'
+
+/**
+ * Starts the watch on the PR at `url`, or this branch's PR, in the checkout at `dir` (else here); says what came
+ * of it. A checkout on another branch than the PR's is never watched: its first look would end the watch.
+ */
+async function beginMail($: EngineInterface, url?: string, dir?: string): Promise<string> {
+  const top = dir
+    ? await $.process.run(['sh', '-c', TOPLEVEL_OF, 'sh', dir])
+    : await $.process.run(['git', 'rev-parse', '--show-toplevel'])
+  const root = top.exitCode === 0 ? top.stdout.trim() : ''
   if (!root) return 'Sponsor Mail: not inside a git repository.'
   const found =
     url ??
@@ -514,6 +524,10 @@ async function beginMail($: EngineInterface, url?: string): Promise<string> {
   const pr = await lookAtPr($, { url: found, root })
   if (!pr) return `Sponsor Mail: gh could not read ${found}.`
   if (pr.state !== 'OPEN') return `Sponsor Mail: PR #${pr.number} is ${pr.state.toLowerCase()}; nothing to watch.`
+  const at = (await $.process.run(['git', '-C', root, 'branch', '--show-current'])).stdout.trim()
+  if (at !== '' && at !== pr.branch) {
+    return `Sponsor Mail: PR #${pr.number} is on ${pr.branch}, but ${root} is on ${at}; /watch-pr from its checkout.`
+  }
   const now = await $.clock.now()
   const w = startWatch(pr, root, now)
   await update($, mailWatch, () => w)
@@ -784,7 +798,9 @@ export const register: Register = on => {
       else if (isDone && isPrCreate(e.command)) {
         const url = result?.stdout?.match(/https:\/\/\S+\/pull\/\d+/)?.[0]
         const toast = (text: string) => $.ui.toast(text, { timeoutMs: TOAST_MS })
-        $.clock.after(0, () => void beginMail($, url).then(toast).catch(() => undefined))
+        const dir = createDirOf(e.command)
+        if (dir === null) toast('Sponsor Mail: gh pr create ran where the line computes; /watch-pr from there.')
+        else $.clock.after(0, () => void beginMail($, url, dir).then(toast).catch(() => undefined))
       }
     } catch {
       // the line ran: a failed look leaves Sponsor Mail to its next tick

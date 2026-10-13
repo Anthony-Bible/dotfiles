@@ -101,6 +101,10 @@ describe('the Beast Guard', () => {
     'cd repo && uv run pi-dispatch.py dispatch t.md --timeout 900',
     '/abs/scripts/pi-dispatch.py dispatch t.md 2>&1 | tail -5',
     'timeout 900 python3 -u pi-dispatch.py dispatch t.md',
+    'env PI_X=1 python3 pi-dispatch.py dispatch t.md',
+    'python3 -W ignore pi-dispatch.py dispatch t.md',
+    'uv run --with rich pi-dispatch.py dispatch t.md',
+    'timeout -s KILL 900 python3 pi-dispatch.py dispatch t.md',
   ]
   const OTHERS = [
     'python3 pi-dispatch.py ledger',
@@ -108,6 +112,8 @@ describe('the Beast Guard', () => {
     'echo "pi-dispatch.py dispatch t.md"',
     'echo pi-dispatch.py dispatch t.md',
     'rg -n pi-dispatch.py dispatch',
+    'timeout 5 echo pi-dispatch.py dispatch',
+    'env echo pi-dispatch.py dispatch',
     'go test ./...',
   ]
 

@@ -95,14 +95,26 @@ const PI_DISPATCH = /(?:^|\/)pi-dispatch(?:\.py)?$/
 /** Commands that run the script they are handed; any other command naming it (echo, rg) only mentions it. */
 const RUNNER = /(?:^|\/)(?:python[\d.]*|uv|uvx|env|timeout|nice|nohup|time|exec)$/
 
-/** The line starts a Dispatch: `pi-dispatch.py dispatch`, run directly or through a runner. */
+/** What a runner takes before the script: a flag, a duration, `uv run`, an assignment. */
+const RUNNER_ARG = /^(?:-.*|\d+(?:\.\d+)?[smhd]?|run|[A-Za-z_]\w*=.*)$/
+
+/** A runner's flags that take the next word as their value: python's `-W`, uv's `--with`, timeout's `-s`. */
+const RUNNER_VALUE_FLAG =
+  /^(?:-[WXpnsk]|--(?:with|with-requirements|python|project|directory|env-file|extra|group|signal|kill-after))$/
+
+/** The line starts a Dispatch: `pi-dispatch.py dispatch`, run directly or through a chain of runners. */
 export const isDispatch = (line: string): boolean => {
   const ws = words(line)
   return ws.some((w, i) => {
     if (!w.isCommand) return false
     const run = [w, ...argsOf(ws, i)]
-    const k = run.findIndex(x => PI_DISPATCH.test(x.text))
-    return k >= 0 && (k === 0 || RUNNER.test(w.text)) && run[k + 1]?.text === 'dispatch'
+    for (let k = 0; k < run.length; k++) {
+      const t = run[k]!.text
+      if (PI_DISPATCH.test(t)) return run[k + 1]?.text === 'dispatch'
+      if (!RUNNER.test(t) && !(k > 0 && RUNNER_ARG.test(t))) return false
+      if (k > 0 && RUNNER_VALUE_FLAG.test(t)) k++
+    }
+    return false
   })
 }
 

@@ -293,6 +293,62 @@ describe('Sponsor Mail', () => {
   })
 })
 
+describe("Sponsor Mail's checkout", () => {
+  // A repository at `/repo` on `feat/main-ish`, another at `/other` on the PR's branch, `feat/x`.
+  const repos = (on: On) => {
+    const cwds: string[] = []
+    on('process.run', async (_$, e) => {
+      const args = e.argv.join(' ')
+      if (e.argv[0] === 'sh' && e.argv.includes('../other')) return ran('/other\n')
+      if (args.includes('--show-toplevel')) return ran('/repo\n')
+      if (args.includes('--show-current')) return ran(args.includes('/other') ? 'feat/x\n' : 'feat/main-ish\n')
+      if (args.startsWith('gh api graphql')) {
+        cwds.push(e.init?.cwd ?? '')
+        const pullRequest = {
+          number: 45, url: 'https://github.com/o/r/pull/45', state: 'OPEN', headRefName: 'feat/x',
+          comments: { totalCount: 0, nodes: [] }, reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+        }
+        return ran(JSON.stringify({ data: { viewer: { login: 'me' }, repository: { pullRequest } } }))
+      }
+      return ran('', 1)
+    })
+    on('tool.call', { tool: 'Bash' }, async () => ({
+      result: { stdout: 'https://github.com/o/r/pull/45\n', stderr: '', interrupted: false },
+    }))
+    on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+    on('command.register', async () => ({ value: {} as never }))
+    on('session.usage', async () => ({ value: { context: { percent: 1 }, rateLimits: [] } as never }))
+    return cwds
+  }
+
+  test('is the one gh pr create ran in, after the cds before it', async ($, on) => {
+    const clock = mock.clock(on)
+    watch(on)
+    const tell = told(on)
+    const cwds = repos(on)
+    await $.session.start(START)
+    await $.tool.call({ tool: 'Bash', command: 'cd ../other && gh pr create --fill' })
+    await clock.settle()
+    expect(tell.toasts).toContain('Sponsor Mail: watching PR #45.')
+    await clock.advance(120_000)
+    expect(cwds.length).toBeGreaterThan(1)
+    expect(new Set(cwds)).toEqual(new Set(['/other']))
+    expect(tell.toasts.some(t => t.startsWith('Left '))).toBe(false)
+  })
+
+  test("is never one on another branch than the PR's: no watch, and a word on where to start it", async ($, on) => {
+    const clock = mock.clock(on)
+    watch(on)
+    const tell = told(on)
+    repos(on)
+    await $.session.start(START)
+    await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill' })
+    await clock.settle()
+    expect(tell.toasts.at(-1)).toMatch(/PR #45 is on feat\/x.*\/watch-pr/)
+    expect(tell.toasts).not.toContain('Sponsor Mail: watching PR #45.')
+  })
+})
+
 describe('the Beast Guard', () => {
   test('refuses a Dispatch while Beast is Down unless it carries the Escape Hatch, and tells of it once', async ($, on) => {
     mock.clock(on)
