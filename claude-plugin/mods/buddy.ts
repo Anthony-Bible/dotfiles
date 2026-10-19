@@ -268,15 +268,17 @@ export const soulPrompt = (h: Hatch): string => `The pet: ${profile(h)}.`
 
 /** The Soul the model wrote, out of its two lines; undefined when it did not write two. */
 export const parseSoul = (text: string, seed: string): Soul | undefined => {
-  const [name, personality] = text
+  const lines = text
     .split('\n')
-    .map(l => l.trim().replace(/^["'“]|["'”]$/g, ''))
+    .map(l => l.trim().replace(/^["'“]|["'”]$/g, '').trim())
     .filter(Boolean)
+  const name = lines[0]?.replace(/^(?:\d+[\.\)]\s*|(?:name|pet name):\s*)/i, '').trim().replace(/^["'“]|["'”]$/g, '')
+  const personality = lines[1]?.replace(/^(?:\d+[\.\)]\s*|(?:personality|bio|description):\s*)/i, '').trim().replace(/^["'“]|["'”]$/g, '')
   if (!name || !personality || name.length > 30) return undefined
   return { seed, name, personality: personality.length > 120 ? `${personality.slice(0, 119)}…` : personality }
 }
 
-const NAMES: Record<Species, readonly string[]> = {
+export const NAMES: Record<Species, readonly string[]> = {
   duck: ['Sir Quacks', 'Puddle'],
   goose: ['Honkler', 'Menace'],
   cat: ['Biscuit', 'Lady Whiskers'],
@@ -307,7 +309,7 @@ export const fallbackSoul = (h: Hatch, seed: string): Soul => {
     WISDOM: 'Says little, means more, and is usually right about the regex.',
     SNARK: 'Heckles the System, the Crawler and the compiler in equal measure.',
   }
-  return { seed, name: pick(prng(hash(seed)), NAMES[h.species]), personality: trait[peak] }
+  return { seed, name: pick(prng(hash(`${seed}#name`)), NAMES[h.species]), personality: trait[peak] }
 }
 
 const what = (m: Moment): string => {

@@ -9,6 +9,7 @@ import {
   cleanBubble,
   fallbackSoul,
   momentOfAward,
+  NAMES,
   parseSoul,
   RARITIES,
   RARITY_FLOOR,
@@ -97,6 +98,27 @@ describe('the Soul', () => {
 
   test('the stock Soul is fixed by the seed', () => {
     for (const s of seeds(200)) expect(fallbackSoul(roll(s), s)).toEqual(fallbackSoul(roll(s), s))
+  })
+
+  test('strips common labels and numbering, but keeps the seed and limits', () => {
+    expect(parseSoul('Name: Sir Honk\nPersonality: A goose of great menace.', 's')).toEqual({
+      seed: 's',
+      name: 'Sir Honk',
+      personality: 'A goose of great menace.',
+    })
+    expect(parseSoul('1. Sir Honk\n2. A goose of great menace.', 's')).toEqual({
+      seed: 's',
+      name: 'Sir Honk',
+      personality: 'A goose of great menace.',
+    })
+  })
+
+  test('all species fallback names are reachable across seeds', () => {
+    const seen = new Set<string>()
+    for (const s of seeds(10_000)) seen.add(fallbackSoul(roll(s), s).name)
+    for (const names of Object.values(NAMES)) {
+      for (const n of names) expect(seen.has(n)).toBe(true)
+    }
   })
 })
 
