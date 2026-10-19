@@ -485,6 +485,7 @@ describe('the Buddy', () => {
     on('command.register', async () => ({ value: {} as never }))
     on('session.usage', async () => ({ value: { context: { percent: 1 }, rateLimits: [] } as never }))
     on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+    on('classic.SessionStart', async () => ({})) // no settings hook beneath
     on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
       const { Box } = $.ui.resolve(e)
       return <Box key="engine" />
@@ -579,5 +580,28 @@ describe('the Buddy', () => {
     await $.session.start(START)
     await clock.advance(13_000)
     expect(await shows($, /Sir Test/)).toBe(true)
+  })
+
+  // A /clear starts a fresh session with fresh state and no session.start: only the classic SessionStart.
+  const kept = { rerolls: 0, account: ACCOUNT, soul: { seed: seedOf(ACCOUNT, 0), name: 'Old Faithful', personality: 'Loyal.' } }
+
+  test('after a /clear the kept Buddy is back above the prompt', async ($, on) => {
+    mock.clock(on)
+    const seen = watch(on)
+    world(on)
+    seen.store.set('buddy.saved', kept)
+    await $.classic.SessionStart({ source: 'clear' })
+    expect(await shows($, /Old Faithful/)).toBe(true)
+  })
+
+  test('/buddy with a kept Buddy the state lost shows that Buddy again, never hatching a new one', async ($, on) => {
+    mock.clock(on)
+    const seen = watch(on)
+    world(on)
+    seen.store.set('buddy.saved', kept)
+    const r = await $.command.run(buddy())
+    expect(r.text).toContain('Old Faithful')
+    expect((seen.store.get('buddy.saved') as { soul: { name: string } }).soul.name).toBe('Old Faithful')
+    expect(await shows($, /Old Faithful/)).toBe(true)
   })
 })

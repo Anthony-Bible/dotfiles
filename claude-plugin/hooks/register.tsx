@@ -800,12 +800,17 @@ async function buddyAccount($: EngineInterface, saved: SavedBuddy): Promise<stri
 async function startBuddy($: EngineInterface): Promise<void> {
   bubbleAt = -Infinity
   fidgetTicks($)
-  const saved = await savedBuddy($)
-  if (!saved.soul) return
+  await restoreBuddy($, await savedBuddy($))
+}
+
+/** Puts the kept Buddy back in the session's state; false when none is kept for this account's seed. */
+async function restoreBuddy($: EngineInterface, saved: SavedBuddy): Promise<boolean> {
+  if (!saved.soul) return false
   const seed = seedOf(await buddyAccount($, saved), saved.rerolls)
   // A Soul written for another seed (another login) is not this Buddy's: /buddy hatches the right one.
-  if (saved.soul.seed !== seed) return
+  if (saved.soul.seed !== seed) return false
   await update($, buddy, () => ({ seed, name: saved.soul!.name, isShown: !saved.isHidden }))
+  return true
 }
 
 async function writeSoul($: EngineInterface, seed: string): Promise<Soul> {
@@ -920,9 +925,10 @@ async function buddyCommand($: EngineInterface, args: string): Promise<string> {
   const verb = args.trim().toLowerCase().replace(/\s+/g, ' ')
   if (verb === '') {
     if (b.egg !== undefined) return 'Your egg is hatching!'
-    if (b.seed && saved.soul?.seed === b.seed) {
+    // The state may have lost a kept Buddy (a /clear): bring it back rather than hatch over its Soul.
+    if (await restoreBuddy($, saved)) {
       await setShown($, true)
-      return card(roll(b.seed), saved.soul)
+      return card(roll(saved.soul!.seed), saved.soul!)
     }
     return hatchBuddy($, seedOf(await buddyAccount($, saved), saved.rerolls), 0)
   }
@@ -1097,6 +1103,13 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   // --------------------------------------------------------------------------------------------- Buddy
+
+  // A /clear starts the session over with fresh state and no session.start: the kept Buddy comes back here.
+  on('classic.SessionStart', async ($, e, next) => {
+    const r = await next(e)
+    if (e.source === 'clear') await startBuddy($)
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'buddy' }, async ($, e) => ({ text: await buddyCommand($, e.args) }))
 
