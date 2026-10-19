@@ -1,5 +1,7 @@
-import { describe, expect, mock, test } from 'claude-code/testing'
+import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
+
+import { roll, seedOf } from '../mods/buddy'
 
 // What the mod shows and keeps, seen from beneath it: the status line it sets and the store it writes.
 const watch = (on: On) => {
@@ -457,5 +459,103 @@ describe('the Beast Guard', () => {
     bash(on, () => false)
     expect((await $.tool.call({ tool: 'Bash', command: 'pi-dispatch.py dispatch t.md' })).deny).toBeUndefined()
     expect(calls.completions).toBe(0)
+  })
+})
+
+describe('the Buddy', () => {
+  const ACCOUNT = 'crawler@dungeon.example'
+  // The login's email line, and the model naming the Buddy or speaking for it.
+  const world = (on: On, hasLogin = true) => {
+    on('process.run', async (_$, e) => ({
+      value: {
+        exitCode: 0,
+        stdout: hasLogin && e.argv.join(' ').includes('emailAddress') ? `"emailAddress": "${ACCOUNT}"` : '',
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }))
+    on('model.complete', async (_$, e) => ({
+      value: {
+        isAnswered: true,
+        text: e.system?.includes('You name') ? 'Sir Test\nA very testy pet.' : 'Boo, System!',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      } as never,
+    }))
+    on('command.register', async () => ({ value: {} as never }))
+    on('session.usage', async () => ({ value: { context: { percent: 1 }, rateLimits: [] } as never }))
+    on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+    on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+      const { Box } = $.ui.resolve(e)
+      return <Box key="engine" />
+    })
+  }
+  // /buddy as the Crawler types it at the prompt.
+  const buddy = (args = '') =>
+    ({ command: 'buddy', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } }) as const
+  const shows = async ($: Engine, text: RegExp) => {
+    const ui = await $.ui.mount({ plugin: 'dotfiles-dev-tools', surface: 'terminal', ...BAND })
+    const found = (await ui.find({ type: 'Text', text })) !== undefined
+    await ui.unmount()
+    return found
+  }
+
+  test('/buddy hatches the Hatch the account rolls; it greets, then rests as its face and name', async ($, on) => {
+    const clock = mock.clock(on)
+    const seen = watch(on)
+    world(on)
+    await $.session.start(START)
+    expect(await shows($, /Sir Test/)).toBe(false) // nothing before the first /buddy
+
+    const hatch = roll(seedOf(ACCOUNT, 0))
+    const r = await $.command.run(buddy())
+    expect(r.text).toContain(`Sir Test the ${hatch.isShiny ? 'shiny ' : ''}${hatch.species}`)
+    expect((seen.store.get('buddy.saved') as { soul: { name: string } }).soul.name).toBe('Sir Test')
+
+    await clock.advance(3000)
+    expect(await shows($, /Boo, System!/)).toBe(true) // the greeting Bubble
+    await clock.advance(13_000)
+    expect(await shows($, /Boo, System!/)).toBe(false)
+    expect(await shows($, /Sir Test/)).toBe(true)
+
+    await $.command.run(buddy('hide'))
+    expect(await shows($, /Sir Test/)).toBe(false)
+  })
+
+  test('a Reroll is refused without 500 all-time CP; paid for, it costs them, a Debuff, and rolls a new seed', async ($, on) => {
+    const clock = mock.clock(on)
+    const seen = watch(on)
+    world(on)
+    await $.session.start(START)
+    await $.command.run(buddy())
+    await clock.advance(3000)
+
+    const refused = await $.command.run(buddy('reroll confirm'))
+    expect(refused.text).toContain('Your Buddy stays')
+    expect((seen.store.get('buddy.saved') as { rerolls: number }).rerolls).toBe(0)
+
+    seen.store.set('crawler-points.allTime', 600)
+    await $.session.start(START)
+    await $.command.run(buddy('reroll confirm'))
+    expect(seen.store.get('crawler-points.allTime')).toBe(100)
+    expect(seen.statuses.at(-1)).toContain('Debuff: Abandonment Issues')
+    const saved = seen.store.get('buddy.saved') as { rerolls: number; soul: { seed: string } }
+    expect(saved.rerolls).toBe(1)
+    expect(saved.soul.seed).toBe(seedOf(ACCOUNT, 1))
+  })
+  test('without a login the Buddy is seeded once, made up, and the same Buddy comes back next session', async ($, on) => {
+    const clock = mock.clock(on)
+    const seen = watch(on)
+    world(on, false)
+    await $.session.start(START)
+    await $.command.run(buddy())
+    await clock.advance(3000)
+    const saved = seen.store.get('buddy.saved') as { account: string; soul: { seed: string } }
+    expect(saved.account).toMatch(/^anon-/)
+    expect(saved.soul.seed).toBe(saved.account)
+
+    await $.session.start(START)
+    await clock.advance(13_000)
+    expect(await shows($, /Sir Test/)).toBe(true)
   })
 })

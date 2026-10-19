@@ -62,6 +62,17 @@ export type BeastReadingState = {
 
 export type BeastWatchState = { isAwake: boolean; reading?: BeastReadingState }
 
+/** The Buddy as the band draws it: its Hatch is rolled from `seed`; absent before the first /buddy. */
+export type BuddyState = {
+  seed?: string
+  name?: string
+  isShown: boolean
+  /** The Bubble it is saying now, its full sprite drawn beside it. */
+  bubble?: string
+  /** The egg's frame while it hatches. */
+  egg?: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'dotfiles-dev-tools': {
@@ -72,6 +83,7 @@ declare module 'claude-code' {
       bosses: BossesState
       mailWatch: MailWatchState | null
       beast: BeastWatchState
+      buddy: BuddyState
     }
   }
 }
