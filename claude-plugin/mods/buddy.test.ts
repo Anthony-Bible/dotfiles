@@ -8,6 +8,10 @@ import {
   card,
   cleanBubble,
   fallbackSoul,
+  faceOf,
+  fidgetOdds,
+  fidgetOf,
+  FIDGET_POSES,
   momentOfAward,
   NAMES,
   parseSoul,
@@ -200,5 +204,38 @@ describe('what an Award gives the Buddy to say', () => {
 describe('the Reroll', () => {
   test('refused exactly when the all-time total is under its price', () => {
     for (let t = -1000; t < 2000; t += 37) expect(rerollRefusal(t) === undefined).toBe(t >= REROLL_COST)
+  })
+})
+
+describe('the fidget', () => {
+  // One Hatch of each species, so every face is drawn.
+  const hatches = SPECIES.map(species => ({ ...roll('fidget@dungeon.example'), species }))
+
+  test('every pose is a different face exactly as wide as the face at rest, so the band never jumps', () => {
+    for (const h of hatches) {
+      const rest = [...faceOf(h)]
+      for (let p = 0; p < FIDGET_POSES; p++) {
+        const face = [...faceOf(h, p)]
+        expect(face.join('')).not.toBe(rest.join(''))
+        expect(face.length).toBe(rest.length)
+      }
+    }
+  })
+
+  test('a tick fidgets at the Hatch odds, which grow with CHAOS, into a pose that exists', () => {
+    const r = rng(7)
+    for (const s of seeds(200)) {
+      const h = roll(s)
+      expect(fidgetOdds(h)).toBeGreaterThanOrEqual(0.15)
+      expect(fidgetOdds(h)).toBeLessThanOrEqual(0.5)
+      const calmer = { ...h, stats: { ...h.stats, CHAOS: Math.max(0, h.stats.CHAOS - 10) } }
+      expect(fidgetOdds(calmer)).toBeLessThanOrEqual(fidgetOdds(h))
+      for (let i = 0; i < 20; i++) {
+        const roll1 = r()
+        const pose = fidgetOf(h, roll1, r())
+        expect(pose === undefined).toBe(roll1 >= fidgetOdds(h))
+        if (pose !== undefined) expect(pose >= 0 && pose < FIDGET_POSES).toBe(true)
+      }
+    }
   })
 })

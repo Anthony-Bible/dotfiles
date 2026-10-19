@@ -134,6 +134,9 @@ import {
   cleanBubble,
   EGG,
   fallbackSoul,
+  FIDGET_MS,
+  FIDGET_TICK_MS,
+  fidgetOf,
   isForced,
   legendaryAward,
   momentOfAward,
@@ -232,6 +235,9 @@ let bubbleAt = -Infinity
 let isBubbleBusy = false
 let bubbleTimer: { cancel: () => void } | undefined
 let bubbleSeq = 0
+/** The Buddy's fidget ticks, and the timer that ends the fidget it is in. */
+let fidgetTimer: { cancel: () => void } | undefined
+let poseTimer: { cancel: () => void } | undefined
 
 // ------------------------------------------------------------------------------------- Dispatch Board
 
@@ -793,6 +799,7 @@ async function buddyAccount($: EngineInterface, saved: SavedBuddy): Promise<stri
 
 async function startBuddy($: EngineInterface): Promise<void> {
   bubbleAt = -Infinity
+  fidgetTicks($)
   const saved = await savedBuddy($)
   if (!saved.soul) return
   const seed = seedOf(await buddyAccount($, saved), saved.rerolls)
@@ -836,6 +843,22 @@ async function hatchBuddy($: EngineInterface, seed: string, delayMs: number): Pr
     if (hatch.rarity === 'legendary') await award($, legendaryAward(hatch))
   })
   return card(hatch, soul)
+}
+
+/** Now and then, CHAOS-weighted, the Buddy at rest fidgets for a moment and settles back. */
+function fidgetTicks($: EngineInterface): void {
+  fidgetTimer?.cancel()
+  fidgetTimer = $.clock.every(FIDGET_TICK_MS, () => void fidget($).catch(() => undefined))
+}
+
+async function fidget($: EngineInterface): Promise<void> {
+  const b = await read($, buddy)
+  if (!b.seed || !b.name || !b.isShown || b.egg !== undefined || b.bubble || b.pose !== undefined) return
+  const pose = fidgetOf(roll(b.seed), Math.random(), Math.random())
+  if (pose === undefined) return
+  await update($, buddy, x => ({ ...x, pose }))
+  poseTimer?.cancel()
+  poseTimer = $.clock.after(FIDGET_MS, () => void update($, buddy, x => ({ ...x, pose: undefined })).catch(() => undefined))
 }
 
 /** The Buddy speaks of `m` off the caller's dispatch: a tool call never waits on a Bubble. */
@@ -1195,7 +1218,7 @@ export const register: Register = on => {
         hatch &&
         b.name && (
           <Box key="buddy" justifyContent="flex-end">
-            <Text color={tint}>{restLine(hatch, b.name)}</Text>
+            <Text color={tint}>{restLine(hatch, b.name, b.pose)}</Text>
           </Box>
         )
       ))

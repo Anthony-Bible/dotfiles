@@ -169,7 +169,43 @@ export const EGG: readonly (readonly string[])[] = [
 /** The full sprite, its hat (when it has one) on top. */
 export const spriteOf = (h: Hatch): string[] => [...(h.hat ? [HAT_LINE[h.hat]] : []), ...SPRITE[h.species]]
 
-export const faceOf = (h: Hatch): string => FACE[h.species]
+/** The faces it fidgets through at rest: a blink first, then a species tic. Each is as wide as its FACE. */
+const FIDGET: Record<Species, readonly string[]> = {
+  duck: ['<(- )', '<(O )'],
+  goose: ['(->', '(O>'],
+  cat: ['=-.-=', '=^ω^='],
+  dragon: ['<- ->', '<o o≈'],
+  octopus: ['(- -)~', '(o o)≈'],
+  owl: ['(-,O)', '(O,-)'],
+  axolotl: ['}(-‿-){', '{(o‿o)}'],
+  capybara: ['(-..-)', '(u..u)'],
+  ghost: ['(- -)~', '~(o o)'],
+  robot: ['[-_-]', '[o_O]'],
+  snail: ['@_-', '@_O'],
+  chonk: ['(-w-)', '(=ω=)'],
+  goblin: ['\\(-_-)/', '/(ò_ó)\\'],
+  mimic: ['|V-V|', '|vov|'],
+  slime: ['(-~-)', '(o≈o)'],
+  skeleton: ['(o_o)', '(x_X)'],
+  'floating eye': ['-(-)-', '=(@)='],
+  'dungeon rat': ['(-.-)~', '~(o.o)'],
+}
+
+/** Its face at rest, or, with `pose`, the fidget it is mid-way through. */
+export const faceOf = (h: Hatch, pose?: number): string =>
+  pose === undefined ? FACE[h.species] : (FIDGET[h.species][pose % FIDGET[h.species].length] ?? FACE[h.species])
+
+export const FIDGET_POSES = 2
+/** How often the Buddy at rest may fidget, and how long a fidget holds. */
+export const FIDGET_TICK_MS = 5000
+export const FIDGET_MS = 1200
+
+/** How likely a tick makes it fidget: 15% for a calm one, up to 50% for pure CHAOS. */
+export const fidgetOdds = (h: Hatch): number => 0.15 + 0.35 * (h.stats.CHAOS / 100)
+
+/** The pose a tick puts it in, `r` and `p` being rolls in [0, 1): undefined when it sits still. */
+export const fidgetOf = (h: Hatch, r: number, p: number): number | undefined =>
+  r < fidgetOdds(h) ? Math.floor(p * FIDGET_POSES) % FIDGET_POSES : undefined
 
 export const starsOf = (r: Rarity): string => '★'.repeat(RARITIES.indexOf(r) + 1)
 
@@ -182,8 +218,8 @@ export const RARITY_COLOR: Record<Rarity, string> = {
 }
 
 /** The one-line Buddy at rest: face, name, stars, and the shine when it has one. */
-export const restLine = (h: Hatch, name: string): string =>
-  `${faceOf(h)} ${name} ${starsOf(h.rarity)}${h.isShiny ? ' ✨' : ''}`
+export const restLine = (h: Hatch, name: string, pose?: number): string =>
+  `${faceOf(h, pose)} ${name} ${starsOf(h.rarity)}${h.isShiny ? ' ✨' : ''}`
 
 const bar = (n: number): string => '█'.repeat(Math.round(n / 10)).padEnd(10, '░')
 

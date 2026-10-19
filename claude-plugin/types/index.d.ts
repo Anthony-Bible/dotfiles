@@ -71,6 +71,8 @@ export type BuddyState = {
   bubble?: string
   /** The egg's frame while it hatches. */
   egg?: number
+  /** The fidget its resting face is mid-way through. */
+  pose?: number
 }
 
 declare module 'claude-code' {

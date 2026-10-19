@@ -174,6 +174,10 @@ _Avoid_: roll, spawn, character
 One line the Buddy says in a speech bubble beside its full sprite, shown for a short while before the Buddy shrinks back to its face.
 _Avoid_: comment, reaction, quip (a quip is an Award's toast)
 
+**Fidget**:
+A moment when the resting Buddy's face changes to a blink or a species tic, then goes back to normal; the more chaotic the Buddy, the more often it happens. It never happens during a Bubble.
+_Avoid_: animation, idle (in mod text)
+
 **Reroll**:
 The Crawler abandoning their Buddy for a new Hatch, paid for in Crawler Points; it holds only on the machine where it happened.
 _Avoid_: reset, regenerate

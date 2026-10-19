@@ -1,7 +1,7 @@
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { roll, seedOf } from '../mods/buddy'
+import { faceOf, FIDGET_MS, FIDGET_TICK_MS, roll, seedOf } from '../mods/buddy'
 
 // What the mod shows and keeps, seen from beneath it: the status line it sets and the store it writes.
 const watch = (on: On) => {
@@ -520,6 +520,28 @@ describe('the Buddy', () => {
 
     await $.command.run(buddy('hide'))
     expect(await shows($, /Sir Test/)).toBe(false)
+  })
+
+  test('at rest the Buddy now and then fidgets its face, then settles back, its name never leaving', async ($, on) => {
+    const clock = mock.clock(on)
+    watch(on)
+    world(on)
+    await $.session.start(START)
+    await $.command.run(buddy())
+    await clock.advance(16_000) // hatched, greeted, the Bubble gone
+    const hatch = roll(seedOf(ACCOUNT, 0))
+    const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const rest = new RegExp(`^${escape(faceOf(hatch))} Sir Test`)
+    let fidgets = 0
+    // At 15% odds or better a tick, 60 ticks all still is a 1-in-17,000 fluke.
+    for (let i = 0; i < 60 && fidgets === 0; i++) {
+      await clock.advance(FIDGET_TICK_MS)
+      expect(await shows($, /Sir Test/)).toBe(true)
+      if (!(await shows($, rest))) fidgets++
+    }
+    expect(fidgets).toBeGreaterThan(0)
+    await clock.advance(FIDGET_MS)
+    expect(await shows($, rest)).toBe(true)
   })
 
   test('a Reroll is refused without 500 all-time CP; paid for, it costs them, a Debuff, and rolls a new seed', async ($, on) => {
