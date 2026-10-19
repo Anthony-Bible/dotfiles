@@ -231,6 +231,7 @@ let beastHost: string | undefined
 let bubbleAt = -Infinity
 let isBubbleBusy = false
 let bubbleTimer: { cancel: () => void } | undefined
+let bubbleSeq = 0
 
 // ------------------------------------------------------------------------------------- Dispatch Board
 
@@ -780,7 +781,10 @@ async function savedBuddy($: EngineInterface): Promise<SavedBuddy> {
 /** The account the Hatch is seeded from: the login's email, else a random one made once and kept. */
 async function buddyAccount($: EngineInterface, saved: SavedBuddy): Promise<string> {
   const found = accountOf((await $.process.run(['sh', '-c', ACCOUNT_LINE])).stdout)
-  if (found) return found
+  if (found) {
+    if (saved.account !== found) await $.store.set(STORE_BUDDY, { ...saved, account: found })
+    return found
+  }
   if (saved.account) return saved.account
   const made = `anon-${Math.random().toString(36).slice(2)}`
   await $.store.set(STORE_BUDDY, { ...saved, account: made })
@@ -847,6 +851,7 @@ async function say($: EngineInterface, m: Moment): Promise<void> {
   const now = await $.clock.now()
   if (!willSpeak(hatch, m, now, bubbleAt, Math.random()) || (isBubbleBusy && !isForced(m))) return
   bubbleAt = now
+  const seq = ++bubbleSeq
   let text = cannedBubble(m, Math.random())
   if (m.kind !== 'pet' && !isBubbleBusy) {
     isBubbleBusy = true
@@ -860,6 +865,7 @@ async function say($: EngineInterface, m: Moment): Promise<void> {
         effort: 'low',
         timeoutMs: BUBBLE_TIMEOUT_MS,
       })
+      if (seq !== bubbleSeq) return
       text = (r.isAnswered && cleanBubble(r.text)) || text
     } catch {
       // the model call failed or timed out: the canned Bubble stands
@@ -867,13 +873,18 @@ async function say($: EngineInterface, m: Moment): Promise<void> {
       isBubbleBusy = false
     }
   }
+  if (seq !== bubbleSeq) return
   await update($, buddy, x => ({ ...x, bubble: text }))
   bubbleTimer?.cancel()
   bubbleTimer = $.clock.after(BUBBLE_MS, () => void update($, buddy, x => ({ ...x, bubble: undefined })).catch(() => undefined))
 }
 
 async function setShown($: EngineInterface, isShown: boolean): Promise<void> {
-  await update($, buddy, b => ({ ...b, isShown }))
+  if (!isShown) {
+    bubbleTimer?.cancel()
+    bubbleTimer = undefined
+  }
+  await update($, buddy, b => ({ ...b, isShown, ...(isShown ? {} : { bubble: undefined }) }))
   await $.store.set(STORE_BUDDY, { ...(await savedBuddy($)), isHidden: !isShown })
 }
 
@@ -885,6 +896,7 @@ async function buddyCommand($: EngineInterface, args: string): Promise<string> {
   const b = await read($, buddy)
   const verb = args.trim().toLowerCase().replace(/\s+/g, ' ')
   if (verb === '') {
+    if (b.egg !== undefined) return 'Your egg is hatching!'
     if (b.seed && saved.soul?.seed === b.seed) {
       await setShown($, true)
       return card(roll(b.seed), saved.soul)
@@ -908,6 +920,7 @@ async function buddyCommand($: EngineInterface, args: string): Promise<string> {
         `A Reroll abandons ${b.name} for a new Hatch: −${REROLL_COST} CP and a Debuff. /buddy reroll confirm to go through with it.`
       )
     case 'reroll confirm': {
+      if (b.egg !== undefined) return 'Wait for your egg to hatch first.'
       const refusal = rerollRefusal(await read($, allTime))
       if (refusal) return refusal
       await award($, rerollAward, { kind: 'reroll' })
