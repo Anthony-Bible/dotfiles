@@ -886,12 +886,13 @@ export const register: Register = on => {
     return r
   }).catch(($, e, next) => next(e))
 
-  // dungeon-buddy's Buddy was Rerolled or hatched legendary: priced here, off its dispatch. Its Bubble already
-  // said it, so the Award announces no Cue back.
+  // dungeon-buddy's Buddy was Rerolled or hatched legendary: priced here before its write returns, so a second
+  // Reroll reads the debited total. Its Bubble already said it, so the Award announces no Cue back.
   on('state.set', { plugin: 'dungeon-buddy', key: 'cue' }, async ($, e, next) => {
     const r = await next(e)
     const a = awardOfBuddyCue(e.value)
-    if (a) $.clock.after(0, () => void award($, a, null).catch(() => undefined))
+    // A pricing that fails leaves the Buddy's write as written: past `next`, this hook must not throw.
+    if (a) await award($, a, null).catch(() => undefined)
     return r
   }).catch(($, e, next) => next(e))
 
@@ -998,6 +999,8 @@ export const register: Register = on => {
   // ------------------------------------------------------------------------------------------ the voice
 
   on('turn.start', async ($, e, next) => {
+    // A subagent's turn runs inside the main loop's: that turn's stats and spinner carry on.
+    if (e.agentId) return next(e)
     turn = { toolCalls: 0, points: 0, events: [] }
     const mood = moodOf({
       contextPercent: usage?.contextPercent,

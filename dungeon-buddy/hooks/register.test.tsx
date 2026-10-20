@@ -246,6 +246,23 @@ describe('Mishaps and Long Hauls', () => {
     expect(await bubbles($, clock, () => turn($, clock, 0, LONG_HAUL_MS))).toBe(true)
   })
 
+  test("a subagent starting mid-turn doesn't restart the main loop's count", async ($, on) => {
+    const clock = mock.clock(on)
+    watch(on)
+    world(on)
+    bash(on, () => false)
+    loop(on)
+    await hatched($, clock)
+    const split = async () => {
+      await $.turn.start({ text: 'go', turnId: 't' })
+      for (let i = 0; i < 19; i++) await $.tool.call({ tool: 'Bash', command: 'true' })
+      await $.turn.start({ text: 'help', turnId: 's', agentId: 'a1' })
+      await $.tool.call({ tool: 'Bash', command: 'true' })
+      await $.turn.complete({ answer: 'done', durationMs: 1000, isAborted: false, turnId: 't', reason: 'answer' })
+    }
+    expect(await bubbles($, clock, split)).toBe(true)
+  })
+
   test('with dotfiles-dev-tools it keeps quiet about both: the Cues tell of the same events', async ($, on) => {
     const clock = mock.clock(on)
     watch(on)

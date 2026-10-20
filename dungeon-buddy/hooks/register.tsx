@@ -313,7 +313,7 @@ export const register: Register = on => {
   // --------------------------------------------------------------------------- Mishaps and Long Hauls
 
   on('turn.start', async ($, e, next) => {
-    turnCalls = 0
+    if (!e.agentId) turnCalls = 0
     return next(e)
   })
 

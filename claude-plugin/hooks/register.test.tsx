@@ -518,3 +518,19 @@ describe('the band', () => {
     await ui.unmount()
   })
 })
+
+describe('the Verdict', () => {
+  test("a subagent starting mid-turn doesn't restart the main turn's count of tool calls", async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    bash(on, () => false)
+    on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+    on('turn.complete', async (_$, e) => ({ text: e.answer }))
+    await $.turn.start({ text: 'go', turnId: 't' })
+    for (let i = 0; i < 9; i++) await $.tool.call({ tool: 'Bash', command: 'ls' })
+    await $.turn.start({ text: 'help', turnId: 's', agentId: 'a1' })
+    await $.tool.call({ tool: 'Bash', command: 'ls' })
+    const r = await $.turn.complete({ answer: 'done', durationMs: 1000, isAborted: false, turnId: 't', reason: 'answer' })
+    expect(r.text).not.toBe('done') // ten calls: a Notable Turn, so a Verdict
+  })
+})
