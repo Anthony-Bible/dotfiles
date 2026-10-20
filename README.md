@@ -74,6 +74,14 @@ Or from within Claude Code interactive mode:
 /plugin install dotfiles-dev-tools@anthony-bible-dotfiles
 ```
 
+### Buddy, on its own
+
+`dungeon-buddy` is the Buddy mod by itself: `/buddy` hatches a dungeon pet from your account that sits above the prompt, fidgets, and talks about failed commands and long turns. Install it alone, or beside `dotfiles-dev-tools`, where it talks back to the System's big moments instead and a Reroll costs Crawler Points:
+
+```sh
+claude plugin install dungeon-buddy@anthony-bible-dotfiles
+```
+
 ### How the Marketplace Works
 
 The marketplace is defined by `.claude-plugin/marketplace.json` at the root of this repo. It lists available plugins and points to their source directories.
@@ -95,6 +103,8 @@ When Claude Code installs a plugin, it copies the plugin directory to `~/.claude
 ```
 .claude-plugin/
   marketplace.json          # Marketplace index listing all plugins
+
+dungeon-buddy/              # dungeon-buddy plugin source (the Buddy mod)
 
 claude-plugin/              # dotfiles-dev-tools plugin source
   .claude-plugin/

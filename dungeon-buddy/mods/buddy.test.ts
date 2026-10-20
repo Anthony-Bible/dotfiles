@@ -7,27 +7,32 @@ import {
   cannedBubble,
   card,
   cleanBubble,
+  cueOf,
   fallbackSoul,
   faceOf,
   fidgetOdds,
   fidgetOf,
   FIDGET_POSES,
-  momentOfAward,
+  LONG_HAUL_CALLS,
+  LONG_HAUL_MS,
+  longHaulOf,
+  mishapOf,
   NAMES,
   parseSoul,
   RARITIES,
   RARITY_FLOOR,
   rerollRefusal,
   REROLL_COST,
+  rerollPrice,
   roll,
   seedOf,
   SPECIES,
   spriteOf,
   STATS,
   willSpeak,
+  type Cue,
   type Moment,
 } from './buddy'
-import { apply, type Award } from './points'
 
 const rng = (seed: number) => () => {
   seed = (seed * 1103515245 + 12345) & 0x7fffffff
@@ -153,6 +158,8 @@ describe('Bubbles', () => {
       { kind: 'mail', author: 'x' },
       { kind: 'red-pr', names: ['x'] },
       { kind: 'verdict', text: 'x' },
+      { kind: 'mishap', command: 'x' },
+      { kind: 'long-haul', toolCalls: 20, minutes: 5 },
     ]
     for (const m of kinds) for (let r = 0; r < 1; r += 0.05) expect(cannedBubble(m, r).length).toBeLessThanOrEqual(BUBBLE_MAX)
   })
@@ -174,36 +181,68 @@ describe('Bubbles', () => {
   })
 })
 
-describe('what an Award gives the Buddy to say', () => {
-  const awards: Award[] = [
-    { points: 10, event: 'green', isGreen: true },
-    { points: -15, event: 'red', isGreen: false, debuff: 'Red Build' },
-    { points: 150, event: 'pr', achievement: 'Floor Cleared' },
-    { points: -200, event: 'force', debuff: 'Shame' },
-    { points: 1, event: 'nothing' },
+describe('Cues from dotfiles-dev-tools', () => {
+  const cues: Cue[] = [
+    { kind: 'boss-summoned', name: 'Flaky Fred' },
+    { kind: 'boss-slain', name: 'Flaky Fred' },
+    { kind: 'achievement', name: 'Floor Cleared' },
+    { kind: 'debuff', name: 'Shame' },
+    { kind: 'streak', count: 5 },
+    { kind: 'streak-broken', count: 3 },
+    { kind: 'collapse' },
+    { kind: 'mail', author: 'octocat' },
+    { kind: 'red-pr', names: ['lint', 'test'] },
+    { kind: 'verdict', text: 'Mediocre.' },
   ]
 
-  test('a streak of three or more broken by red is mourned; a repeated Debuff is not news; plain awards are silent', () => {
-    const r = rng(11)
-    for (let i = 0; i < RUNS; i++) {
-      let s = { session: 0, streak: 0 } as ReturnType<typeof apply>
-      for (let j = 0; j < 30; j++) {
-        const a = awards[Math.floor(r() * awards.length)]!
-        const after = apply(s, a)
-        const m = momentOfAward(a, s, after)
-        if (a.isGreen === false && s.streak >= 3) expect(m).toEqual({ kind: 'streak-broken', count: s.streak })
-        else if (a.debuff && a.debuff === s.debuff && !a.achievement) expect(m).toBeUndefined()
-        if (a.event === 'nothing') expect(m).toBeUndefined()
-        if (m?.kind === 'streak') expect([5, 10, 25]).toContain(after.streak)
-        s = after
+  test('every Cue the show writes comes through whole', () => {
+    for (const cue of cues) expect(cueOf({ n: 1, cue })).toEqual(cue)
+  })
+
+  test('anything else, or a Cue missing what it names, is no Cue', () => {
+    const junk = [undefined, null, 1, 'boss', {}, { n: 0 }, { cue: null }, { cue: { kind: 'pet' } }, { cue: { kind: 'hatched' } }]
+    for (const v of junk) expect(cueOf(v)).toBeUndefined()
+    for (const cue of cues) {
+      for (const field of Object.keys(cue).filter(k => k !== 'kind')) {
+        expect(cueOf({ cue: { ...cue, [field]: undefined } })).toBeUndefined()
       }
     }
+  })
+})
+
+describe('Mishaps and Long Hauls', () => {
+  test('a turn is a Long Haul exactly at 20 tool calls or five minutes', () => {
+    const r = rng(5)
+    for (let i = 0; i < RUNS; i++) {
+      const calls = Math.floor(r() * 40)
+      const ms = Math.floor(r() * 2 * LONG_HAUL_MS)
+      const m = longHaulOf(calls, ms)
+      expect(m !== undefined).toBe(calls >= LONG_HAUL_CALLS || ms >= LONG_HAUL_MS)
+      if (m?.kind === 'long-haul') expect(m.toolCalls).toBe(calls)
+    }
+  })
+
+  test('a Mishap quotes the first line of the command, cut short', () => {
+    const r = rng(9)
+    for (let i = 0; i < RUNS; i++) {
+      const command = Array.from({ length: 1 + Math.floor(r() * 3) }, () => 'x'.repeat(Math.floor(r() * 120))).join('\n')
+      const m = mishapOf(command)
+      if (m.kind !== 'mishap') throw new Error('not a Mishap')
+      expect(m.command.includes('\n')).toBe(false)
+      expect(m.command.length).toBeLessThanOrEqual(60)
+    }
+    expect(mishapOf('  go test ./...\necho done')).toEqual({ kind: 'mishap', command: 'go test ./...' })
   })
 })
 
 describe('the Reroll', () => {
   test('refused exactly when the all-time total is under its price', () => {
     for (let t = -1000; t < 2000; t += 37) expect(rerollRefusal(t) === undefined).toBe(t >= REROLL_COST)
+  })
+
+  test('costs CP and a Debuff while Points runs, and nothing without it', () => {
+    expect(rerollPrice(true)).toContain(`${REROLL_COST} CP`)
+    expect(rerollPrice(false)).toBe('free')
   })
 })
 
