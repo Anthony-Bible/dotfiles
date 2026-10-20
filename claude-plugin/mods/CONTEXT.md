@@ -51,6 +51,10 @@ _Avoid_: big turn, long turn
 The System-voiced phrase that replaces Claude Code's spinner word while Claude works.
 _Avoid_: status message, loading text
 
+**Cue**:
+A big moment of the show that the System announces for other mods to react to: a Floor Boss summoned or slain, an Achievement, a Debuff, a Streak milestone or break, a Dungeon Collapse, Mail, a red check on the Watched PR, or a Verdict.
+_Avoid_: moment, event, broadcast
+
 ### Context
 
 **Dungeon Collapse**:
@@ -160,28 +164,6 @@ _Avoid_: dispatch blocker
 A `BEAST_OK=1` prefix that marks a Dispatch as meant to start whatever the Beast State, so the Beast Guard leaves it alone.
 _Avoid_: override, bypass
 
-### Buddy
-
-**Buddy**:
-The Crawler's dungeon pet, sitting beside the prompt as a small ASCII creature that talks back to the System about what happens in the session.
-_Avoid_: companion, mascot, pet (in mod text)
-
-**Hatch**:
-What the Buddy is: its species, rarity, shininess, stats and hat, fixed by the Crawler's account, plus the name and personality written the first time it appears.
-_Avoid_: roll, spawn, character
-
-**Bubble**:
-One line the Buddy says in a speech bubble beside its full sprite, shown for a short while before the Buddy shrinks back to its face.
-_Avoid_: comment, reaction, quip (a quip is an Award's toast)
-
-**Fidget**:
-A moment when the resting Buddy's face changes to a blink or a species tic, then goes back to normal; the more chaotic the Buddy, the more often it happens. It never happens during a Bubble.
-_Avoid_: animation, idle (in mod text)
-
-**Reroll**:
-The Crawler abandoning their Buddy for a new Hatch, paid for in Crawler Points; it holds only on the machine where it happened.
-_Avoid_: reset, regenerate
-
 ### pi-implementer
 
 **Dispatch**:
@@ -205,8 +187,8 @@ _Avoid_: result, status
 - **Sponsor Mail** watches one **Watched PR**; merging or closing it ends the watch, and so does leaving its branch
 - **Mail** is delivered as a notification the Crawler acts on by choice; nothing starts a turn unasked
 - A red check on the **Watched PR** costs Crawler Points; its merge earns them, and so does every **Mail** becoming **Answered**
-- The **Buddy** says a **Bubble** about a **Floor Boss**, an **Achievement**, a **Debuff**, a **Streak** milestone or break, a **Dungeon Collapse**, **Mail**, a red check on the **Watched PR**, or a **Verdict** it talks back to; the more chaotic it is, the likelier it speaks, and never more than one **Bubble** a while
-- A **Reroll** costs 500 **Crawler Points** and applies a **Debuff**, and is refused when the all-time total can't pay for it
+- Every **Award** that unlocks an **Achievement**, applies a **Debuff** or moves the **Streak** past a milestone or breaks it, every **Floor Boss**, **Dungeon Collapse**, **Mail**, red check on the **Watched PR** and **Verdict** is announced as a **Cue**; the Buddy (its own plugin, dungeon-buddy) talks about them
+- A Buddy's Reroll costs 500 **Crawler Points** and applies a **Debuff**, and is refused when the all-time total can't pay for it; a legendary Hatch is an **Achievement**
 - A **Dispatch** started while **Beast** is **Down** is refused by the **Beast Guard** unless it carries the **Beast Escape Hatch**
 
 ## Example dialogue

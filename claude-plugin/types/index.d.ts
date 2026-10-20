@@ -62,17 +62,21 @@ export type BeastReadingState = {
 
 export type BeastWatchState = { isAwake: boolean; reading?: BeastReadingState }
 
-/** The Buddy as the band draws it: its Hatch is rolled from `seed`; absent before the first /buddy. */
-export type BuddyState = {
-  seed?: string
-  name?: string
-  isShown: boolean
-  /** The Bubble it is saying now, its full sprite drawn beside it. */
-  bubble?: string
-  /** The egg's frame while it hatches. */
-  egg?: number
-  /** The fidget its resting face is mid-way through. */
-  pose?: number
+/** The show's latest Cue for other mods to hear; `n` goes up by one with each. Written at session start too. */
+export type CueState = {
+  n: number
+  // As mods/cue.ts's Cue, which dungeon-buddy reads: change them together.
+  cue?:
+    | { kind: 'boss-summoned'; name: string }
+    | { kind: 'boss-slain'; name: string }
+    | { kind: 'achievement'; name: string }
+    | { kind: 'debuff'; name: string }
+    | { kind: 'streak'; count: number }
+    | { kind: 'streak-broken'; count: number }
+    | { kind: 'collapse' }
+    | { kind: 'mail'; author: string }
+    | { kind: 'red-pr'; names: string[] }
+    | { kind: 'verdict'; text: string }
 }
 
 declare module 'claude-code' {
@@ -85,7 +89,11 @@ declare module 'claude-code' {
       bosses: BossesState
       mailWatch: MailWatchState | null
       beast: BeastWatchState
-      buddy: BuddyState
+      cue: CueState
+    }
+    // dungeon-buddy's own, heard but never written here; `awardOfBuddyCue` checks what it holds.
+    'dungeon-buddy': {
+      cue: { n: number; cue?: unknown }
     }
   }
 }

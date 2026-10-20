@@ -1,8 +1,6 @@
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { faceOf, FIDGET_MS, FIDGET_TICK_MS, roll, seedOf } from '../mods/buddy'
-
 // What the mod shows and keeps, seen from beneath it: the status line it sets and the store it writes.
 const watch = (on: On) => {
   const seen = { statuses: [] as (string | undefined)[], store: new Map<string, unknown>() }
@@ -462,146 +460,61 @@ describe('the Beast Guard', () => {
   })
 })
 
-describe('the Buddy', () => {
-  const ACCOUNT = 'crawler@dungeon.example'
-  // The login's email line, and the model naming the Buddy or speaking for it.
-  const world = (on: On, hasLogin = true) => {
-    on('process.run', async (_$, e) => ({
-      value: {
-        exitCode: 0,
-        stdout: hasLogin && e.argv.join(' ').includes('emailAddress') ? `"emailAddress": "${ACCOUNT}"` : '',
-        stderr: '',
-        isStdoutTruncated: false,
-        isStderrTruncated: false,
-      },
-    }))
-    on('model.complete', async (_$, e) => ({
-      value: {
-        isAnswered: true,
-        text: e.system?.includes('You name') ? 'Sir Test\nA very testy pet.' : 'Boo, System!',
-        usage: { input_tokens: 1, output_tokens: 1 },
-      } as never,
-    }))
+describe('Cues', () => {
+  // The Cues the System writes, heard from beneath it as another mod hears them.
+  const cues = (on: On) => {
+    const heard: { kind: string }[] = []
+    on('state.set', { plugin: 'dotfiles-dev-tools', key: 'cue' }, async (_$, e, next) => {
+      if (e.value.cue) heard.push(e.value.cue)
+      return next(e)
+    })
+    return heard
+  }
+
+  test('a Floor Boss summoned and slain, and the Achievement for it, are announced in order', async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    const heard = cues(on)
+    let isRed = true
+    bash(on, () => isRed)
+    for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    isRed = false
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    const kinds = heard.map(c => c.kind)
+    expect(kinds).toContain('boss-summoned')
+    expect(kinds.indexOf('boss-summoned')).toBeLessThan(kinds.indexOf('boss-slain'))
+  })
+
+  test('the session starting writes the Cue, empty, so other mods know the System runs', async ($, on) => {
+    mock.clock(on)
+    watch(on)
+    const writes: unknown[] = []
+    on('state.set', { plugin: 'dotfiles-dev-tools', key: 'cue' }, async (_$, e, next) => {
+      writes.push(e.value)
+      return next(e)
+    })
     on('command.register', async () => ({ value: {} as never }))
     on('session.usage', async () => ({ value: { context: { percent: 1 }, rateLimits: [] } as never }))
+    on('process.run', async () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
     on('session.start', async (_$, e) => ({ cwd: e.cwd }))
-    on('classic.SessionStart', async () => ({})) // no settings hook beneath
-    on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
-      const { Box } = $.ui.resolve(e)
-      return <Box key="engine" />
-    })
-  }
-  // /buddy as the Crawler types it at the prompt.
-  const buddy = (args = '') =>
-    ({ command: 'buddy', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } }) as const
-  const shows = async ($: Engine, text: RegExp) => {
-    const ui = await $.ui.mount({ plugin: 'dotfiles-dev-tools', surface: 'terminal', ...BAND })
-    const found = (await ui.find({ type: 'Text', text })) !== undefined
-    await ui.unmount()
-    return found
-  }
-
-  test('/buddy hatches the Hatch the account rolls; it greets, then rests as its face and name', async ($, on) => {
-    const clock = mock.clock(on)
-    const seen = watch(on)
-    world(on)
     await $.session.start(START)
-    expect(await shows($, /Sir Test/)).toBe(false) // nothing before the first /buddy
-
-    const hatch = roll(seedOf(ACCOUNT, 0))
-    const r = await $.command.run(buddy())
-    expect(r.text).toContain(`Sir Test the ${hatch.isShiny ? 'shiny ' : ''}${hatch.species}`)
-    expect((seen.store.get('buddy.saved') as { soul: { name: string } }).soul.name).toBe('Sir Test')
-
-    await clock.advance(3000)
-    expect(await shows($, /Boo, System!/)).toBe(true) // the greeting Bubble
-    await clock.advance(13_000)
-    expect(await shows($, /Boo, System!/)).toBe(false)
-    expect(await shows($, /Sir Test/)).toBe(true)
-
-    await $.command.run(buddy('hide'))
-    expect(await shows($, /Sir Test/)).toBe(false)
+    expect(writes).toEqual([{ n: 0 }])
   })
+})
 
-  test('at rest the Buddy now and then fidgets its face, then settles back, its name never leaving', async ($, on) => {
-    const clock = mock.clock(on)
+describe('the band', () => {
+  test("what the plugins beneath draw (another mod's row) stays, under the System's rows", async ($, on) => {
+    mock.clock(on)
     watch(on)
-    world(on)
-    await $.session.start(START)
-    await $.command.run(buddy())
-    await clock.advance(16_000) // hatched, greeted, the Bubble gone
-    const hatch = roll(seedOf(ACCOUNT, 0))
-    const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const rest = new RegExp(`^${escape(faceOf(hatch))} Sir Test`)
-    let fidgets = 0
-    // At 15% odds or better a tick, 60 ticks all still is a 1-in-17,000 fluke.
-    for (let i = 0; i < 60 && fidgets === 0; i++) {
-      await clock.advance(FIDGET_TICK_MS)
-      expect(await shows($, /Sir Test/)).toBe(true)
-      if (!(await shows($, rest))) fidgets++
-    }
-    expect(fidgets).toBeGreaterThan(0)
-    await clock.advance(FIDGET_MS)
-    expect(await shows($, rest)).toBe(true)
-  })
-
-  test('a Reroll is refused without 500 all-time CP; paid for, it costs them, a Debuff, and rolls a new seed', async ($, on) => {
-    const clock = mock.clock(on)
-    const seen = watch(on)
-    world(on)
-    await $.session.start(START)
-    await $.command.run(buddy())
-    await clock.advance(3000)
-
-    const refused = await $.command.run(buddy('reroll confirm'))
-    expect(refused.text).toContain('Your Buddy stays')
-    expect((seen.store.get('buddy.saved') as { rerolls: number }).rerolls).toBe(0)
-
-    seen.store.set('crawler-points.allTime', 600)
-    await $.session.start(START)
-    await $.command.run(buddy('reroll confirm'))
-    expect(seen.store.get('crawler-points.allTime')).toBe(100)
-    expect(seen.statuses.at(-1)).toContain('Debuff: Abandonment Issues')
-    const saved = seen.store.get('buddy.saved') as { rerolls: number; soul: { seed: string } }
-    expect(saved.rerolls).toBe(1)
-    expect(saved.soul.seed).toBe(seedOf(ACCOUNT, 1))
-  })
-  test('without a login the Buddy is seeded once, made up, and the same Buddy comes back next session', async ($, on) => {
-    const clock = mock.clock(on)
-    const seen = watch(on)
-    world(on, false)
-    await $.session.start(START)
-    await $.command.run(buddy())
-    await clock.advance(3000)
-    const saved = seen.store.get('buddy.saved') as { account: string; soul: { seed: string } }
-    expect(saved.account).toMatch(/^anon-/)
-    expect(saved.soul.seed).toBe(saved.account)
-
-    await $.session.start(START)
-    await clock.advance(13_000)
-    expect(await shows($, /Sir Test/)).toBe(true)
-  })
-
-  // A /clear starts a fresh session with fresh state and no session.start: only the classic SessionStart.
-  const kept = { rerolls: 0, account: ACCOUNT, soul: { seed: seedOf(ACCOUNT, 0), name: 'Old Faithful', personality: 'Loyal.' } }
-
-  test('after a /clear the kept Buddy is back above the prompt', async ($, on) => {
-    mock.clock(on)
-    const seen = watch(on)
-    world(on)
-    seen.store.set('buddy.saved', kept)
-    await $.classic.SessionStart({ source: 'clear' })
-    expect(await shows($, /Old Faithful/)).toBe(true)
-  })
-
-  test('/buddy with a kept Buddy the state lost shows that Buddy again, never hatching a new one', async ($, on) => {
-    mock.clock(on)
-    const seen = watch(on)
-    world(on)
-    seen.store.set('buddy.saved', kept)
-    const r = await $.command.run(buddy())
-    expect(r.text).toContain('Old Faithful')
-    expect((seen.store.get('buddy.saved') as { soul: { name: string } }).soul.name).toBe('Old Faithful')
-    expect(await shows($, /Old Faithful/)).toBe(true)
+    bash(on, () => true)
+    on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+      const { Text } = $.ui.resolve(e)
+      return <Text key="beneath">a Buddy</Text>
+    })
+    await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
+    const ui = await $.ui.mount({ plugin: 'dotfiles-dev-tools', surface: 'terminal', ...BAND })
+    expect(await ui.find({ type: 'Text', text: /RED/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /a Buddy/ })).toBeDefined()
+    await ui.unmount()
   })
 })

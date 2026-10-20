@@ -1,0 +1,9 @@
+{
+  "name": "dungeon-buddy",
+  "version": "0.1.0",
+  "description": "Buddy: /buddy hatches your dungeon pet from your account. It sits above the prompt, fidgets, and talks about your session's Mishaps and Long Hauls, or, with dotfiles-dev-tools installed, back to the System's Cues",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Anthony Bible"
+  }
+}

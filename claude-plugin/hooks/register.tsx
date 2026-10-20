@@ -28,8 +28,8 @@
 // Beast Watch: woken by the session's first use of Beast (or /beast), Beast's health rides the HUD and its going
 // Down is notified; the Beast Guard refuses a Dispatch while Beast is Down and holds one while it is Loading.
 //
-// Buddy: /buddy hatches the Crawler's dungeon pet from their account; it sits at the right of the band above the
-// prompt and, now and then, says a Bubble about the session's big moments, talking back to the System's Verdicts.
+// Cues: the show's big moments, written to the `cue` state for other mods to hear (dungeon-buddy's Buddy talks
+// back to them); the Buddy's own Cues, a Reroll and a legendary Hatch, are priced in Crawler Points here.
 //
 // Every use of `$` lives in this file (the engine follows `$` into this file's functions, never across an
 // import); the rules are in ../mods/*.ts.
@@ -124,44 +124,14 @@ import {
   verdictPrompt,
   type TurnStats,
 } from '../mods/voice'
-import {
-  accountOf,
-  BUBBLE_MS,
-  BUDDY_SYSTEM,
-  bubblePrompt,
-  cannedBubble,
-  card,
-  cleanBubble,
-  EGG,
-  fallbackSoul,
-  FIDGET_MS,
-  FIDGET_TICK_MS,
-  fidgetOf,
-  isForced,
-  legendaryAward,
-  momentOfAward,
-  parseSoul,
-  RARITY_COLOR,
-  rerollAward,
-  rerollRefusal,
-  REROLL_COST,
-  restLine,
-  roll,
-  seedOf,
-  soulPrompt,
-  SOUL_SYSTEM,
-  spriteOf,
-  willSpeak,
-  type Moment,
-  type Soul,
-} from '../mods/buddy'
+import { awardOfBuddyCue, cueOfAward, type Cue } from '../mods/cue'
 import type {
   BeastWatchState,
-  BuddyState,
   BoardRowState,
   BoardState,
   BossesState,
   CrawlerScore,
+  CueState,
   MailWatchState,
   TddState,
 } from '../types'
@@ -175,7 +145,7 @@ const tdd = atom({ plugin: 'dotfiles-dev-tools', key: 'tdd' } as const, initialT
 const bosses = atom({ plugin: 'dotfiles-dev-tools', key: 'bosses' } as const, initialBosses as BossesState)
 const mailWatch = atom({ plugin: 'dotfiles-dev-tools', key: 'mailWatch' } as const, null as MailWatchState | null)
 const beast = atom({ plugin: 'dotfiles-dev-tools', key: 'beast' } as const, { isAwake: false } as BeastWatchState)
-const buddy = atom({ plugin: 'dotfiles-dev-tools', key: 'buddy' } as const, { isShown: true } as BuddyState)
+const cue = atom({ plugin: 'dotfiles-dev-tools', key: 'cue' } as const, { n: 0 } as CueState)
 
 const PANE = 'dispatch-board'
 const TITLE = 'Dispatch Board'
@@ -230,14 +200,6 @@ let beastTimer: { cancel: () => void } | undefined
 let isBeastLooking = false
 let beastTickCount = 0
 let beastHost: string | undefined
-/** Buddy: when its last Bubble began, whether a Bubble's model call is in flight, and the timer that ends it. */
-let bubbleAt = -Infinity
-let isBubbleBusy = false
-let bubbleTimer: { cancel: () => void } | undefined
-let bubbleSeq = 0
-/** The Buddy's fidget ticks, and the timer that ends the fidget it is in. */
-let fidgetTimer: { cancel: () => void } | undefined
-let poseTimer: { cancel: () => void } | undefined
 
 // ------------------------------------------------------------------------------------- Dispatch Board
 
@@ -504,11 +466,11 @@ async function fight($: EngineInterface, key: string, isGreen: boolean, output: 
   if (!r.event) return
   if (r.event.kind === 'slain') await award($, slayAward(r.event.boss), { kind: 'boss-slain', name: r.event.boss.name })
   else $.ui.toast(bossToast(r.event), { timeoutMs: TOAST_MS })
-  if (r.event.kind === 'spawned') sayLater($, { kind: 'boss-summoned', name: r.event.boss.name })
+  if (r.event.kind === 'spawned') await announceCue($, { kind: 'boss-summoned', name: r.event.boss.name })
 }
 
-/** Scores the Award; the Buddy may speak of `moment`, or of what the Award itself gives it to talk about. */
-async function award($: EngineInterface, a: Award, moment?: Moment): Promise<void> {
+/** Scores the Award and announces `c` as a Cue, or what the Award itself makes one of; null announces none. */
+async function award($: EngineInterface, a: Award, c?: Cue | null): Promise<void> {
   if (turn) turn = { ...turn, points: turn.points + a.points, events: [...turn.events, a.event] }
   const before = await read($, score)
   const after = await update($, score, s => apply(s, a))
@@ -523,8 +485,18 @@ async function award($: EngineInterface, a: Award, moment?: Moment): Promise<voi
   await showScore($)
   // Off the caller's dispatch: a tool call never waits on the quip.
   $.clock.after(0, () => void announce($, a, after, isNewEver).catch(() => undefined))
-  const m = moment ?? momentOfAward(a, before, after)
-  if (m) sayLater($, m)
+  const told = c === undefined ? cueOfAward(a, before, after) : c
+  if (told) await announceCue($, told)
+}
+
+/** Tells the other mods of a big moment of the show. */
+async function announceCue($: EngineInterface, c: Cue): Promise<void> {
+  await update($, cue, s => ({ n: s.n + 1, cue: c }))
+}
+
+/** Writes the Cue as it stands, so another mod reading it knows the System runs this session. */
+async function startCues($: EngineInterface): Promise<void> {
+  await update($, cue, s => ({ ...s }))
 }
 
 async function startPoints($: EngineInterface): Promise<void> {
@@ -587,7 +559,7 @@ async function beginMail($: EngineInterface, url?: string, dir?: string): Promis
 async function deliver($: EngineInterface, w: MailWatch, ev: MailEvent): Promise<void> {
   switch (ev.kind) {
     case 'mail':
-      sayLater($, { kind: 'mail', author: ev.mail[0]?.author ?? 'someone' })
+      await announceCue($, { kind: 'mail', author: ev.mail[0]?.author ?? 'someone' })
       return tell($, mailNotice(w, ev.mail), MAIL_TITLE)
     case 'answered':
       return award($, answeredAward(w, ev.count))
@@ -767,202 +739,6 @@ async function guardBeast($: EngineInterface, line: string): Promise<string | un
   return undefined
 }
 
-// ------------------------------------------------------------------------------------------------ Buddy
-
-const STORE_BUDDY = 'buddy.saved'
-const SOUL_TIMEOUT_MS = 6000
-const BUBBLE_TIMEOUT_MS = 4000
-const EGG_FRAME_MS = 700
-/** The account line of the Crawler's login, read straight from their config; never the whole file. */
-const ACCOUNT_LINE = `grep -m1 -o '"emailAddress"[[:space:]]*:[[:space:]]*"[^"]*"' "$HOME/.claude.json" 2>/dev/null`
-
-/** What the Buddy keeps across sessions: the Rerolls paid on this machine, its Soul, whether it hides. */
-type SavedBuddy = { rerolls: number; soul?: Soul; isHidden?: boolean; account?: string }
-
-async function savedBuddy($: EngineInterface): Promise<SavedBuddy> {
-  const v = (await $.store.get(STORE_BUDDY)) as Partial<SavedBuddy> | undefined
-  return { ...v, rerolls: Number.isFinite(v?.rerolls) ? Number(v?.rerolls) : 0 }
-}
-
-/** The account the Hatch is seeded from: the login's email, else a random one made once and kept. */
-async function buddyAccount($: EngineInterface, saved: SavedBuddy): Promise<string> {
-  const found = accountOf((await $.process.run(['sh', '-c', ACCOUNT_LINE])).stdout)
-  if (found) {
-    if (saved.account !== found) await $.store.set(STORE_BUDDY, { ...saved, account: found })
-    return found
-  }
-  if (saved.account) return saved.account
-  const made = `anon-${Math.random().toString(36).slice(2)}`
-  await $.store.set(STORE_BUDDY, { ...saved, account: made })
-  return made
-}
-
-async function startBuddy($: EngineInterface): Promise<void> {
-  bubbleAt = -Infinity
-  fidgetTicks($)
-  await restoreBuddy($, await savedBuddy($))
-}
-
-/** Puts the kept Buddy back in the session's state; false when none is kept for this account's seed. */
-async function restoreBuddy($: EngineInterface, saved: SavedBuddy): Promise<boolean> {
-  if (!saved.soul) return false
-  const seed = seedOf(await buddyAccount($, saved), saved.rerolls)
-  // A Soul written for another seed (another login) is not this Buddy's: /buddy hatches the right one.
-  if (saved.soul.seed !== seed) return false
-  await update($, buddy, () => ({ seed, name: saved.soul!.name, isShown: !saved.isHidden }))
-  return true
-}
-
-async function writeSoul($: EngineInterface, seed: string): Promise<Soul> {
-  const hatch = roll(seed)
-  try {
-    const r = await $.model.complete({
-      model: QUIP_MODEL,
-      system: SOUL_SYSTEM,
-      prompt: soulPrompt(hatch),
-      maxTokens: 80,
-      effort: 'low',
-      timeoutMs: SOUL_TIMEOUT_MS,
-    })
-    return (r.isAnswered && parseSoul(r.text, seed)) || fallbackSoul(hatch, seed)
-  } catch {
-    return fallbackSoul(hatch, seed)
-  }
-}
-
-/**
- * Hatches the Buddy for `seed`: its Soul written and kept, then, `delayMs` on, the egg cracking above the
- * prompt and the Buddy greeting the Crawler. Answers the stat card.
- */
-async function hatchBuddy($: EngineInterface, seed: string, delayMs: number): Promise<string> {
-  const soul = await writeSoul($, seed)
-  // Read again: finding the account may have just kept a made-up one.
-  await $.store.set(STORE_BUDDY, { ...(await savedBuddy($)), soul, isHidden: false })
-  const hatch = roll(seed)
-  const frame = (n: number, fn: () => Promise<unknown>) =>
-    $.clock.after(delayMs + n * EGG_FRAME_MS, () => void fn().catch(() => undefined))
-  EGG.forEach((_, n) => frame(n, () => update($, buddy, b => ({ ...b, isShown: true, bubble: undefined, egg: n }))))
-  frame(EGG.length, async () => {
-    await update($, buddy, () => ({ seed, name: soul.name, isShown: true }))
-    await say($, { kind: 'hatched' })
-    if (hatch.rarity === 'legendary') await award($, legendaryAward(hatch))
-  })
-  return card(hatch, soul)
-}
-
-/** Now and then, CHAOS-weighted, the Buddy at rest fidgets for a moment and settles back. */
-function fidgetTicks($: EngineInterface): void {
-  fidgetTimer?.cancel()
-  fidgetTimer = $.clock.every(FIDGET_TICK_MS, () => void fidget($).catch(() => undefined))
-}
-
-async function fidget($: EngineInterface): Promise<void> {
-  const b = await read($, buddy)
-  if (!b.seed || !b.name || !b.isShown || b.egg !== undefined || b.bubble || b.pose !== undefined) return
-  const pose = fidgetOf(roll(b.seed), Math.random(), Math.random())
-  if (pose === undefined) return
-  await update($, buddy, x => ({ ...x, pose }))
-  poseTimer?.cancel()
-  poseTimer = $.clock.after(FIDGET_MS, () => void update($, buddy, x => ({ ...x, pose: undefined })).catch(() => undefined))
-}
-
-/** The Buddy speaks of `m` off the caller's dispatch: a tool call never waits on a Bubble. */
-function sayLater($: EngineInterface, m: Moment): void {
-  $.clock.after(0, () => void say($, m).catch(() => undefined))
-}
-
-/** The Buddy says a Bubble about `m`, when it is shown, out of the gap and its CHAOS lets it. */
-async function say($: EngineInterface, m: Moment): Promise<void> {
-  const b = await read($, buddy)
-  if (!b.seed || !b.name || !b.isShown || b.egg !== undefined) return
-  const hatch = roll(b.seed)
-  const now = await $.clock.now()
-  if (!willSpeak(hatch, m, now, bubbleAt, Math.random()) || (isBubbleBusy && !isForced(m))) return
-  bubbleAt = now
-  const seq = ++bubbleSeq
-  let text = cannedBubble(m, Math.random())
-  if (m.kind !== 'pet' && !isBubbleBusy) {
-    isBubbleBusy = true
-    try {
-      const soul = (await savedBuddy($)).soul
-      const r = await $.model.complete({
-        model: QUIP_MODEL,
-        system: BUDDY_SYSTEM,
-        prompt: bubblePrompt(hatch, { name: b.name, personality: soul?.personality ?? '' }, m),
-        maxTokens: 40,
-        effort: 'low',
-        timeoutMs: BUBBLE_TIMEOUT_MS,
-      })
-      if (seq !== bubbleSeq) return
-      text = (r.isAnswered && cleanBubble(r.text)) || text
-    } catch {
-      // the model call failed or timed out: the canned Bubble stands
-    } finally {
-      isBubbleBusy = false
-    }
-  }
-  if (seq !== bubbleSeq) return
-  await update($, buddy, x => ({ ...x, bubble: text }))
-  bubbleTimer?.cancel()
-  bubbleTimer = $.clock.after(BUBBLE_MS, () => void update($, buddy, x => ({ ...x, bubble: undefined })).catch(() => undefined))
-}
-
-async function setShown($: EngineInterface, isShown: boolean): Promise<void> {
-  if (!isShown) {
-    bubbleTimer?.cancel()
-    bubbleTimer = undefined
-  }
-  await update($, buddy, b => ({ ...b, isShown, ...(isShown ? {} : { bubble: undefined }) }))
-  await $.store.set(STORE_BUDDY, { ...(await savedBuddy($)), isHidden: !isShown })
-}
-
-const NO_BUDDY = 'No Buddy yet: /buddy hatches one.'
-
-/** `/buddy [pet | hide | show | reroll [confirm]]`. */
-async function buddyCommand($: EngineInterface, args: string): Promise<string> {
-  const saved = await savedBuddy($)
-  const b = await read($, buddy)
-  const verb = args.trim().toLowerCase().replace(/\s+/g, ' ')
-  if (verb === '') {
-    if (b.egg !== undefined) return 'Your egg is hatching!'
-    // The state may have lost a kept Buddy (a /clear): bring it back rather than hatch over its Soul.
-    if (await restoreBuddy($, saved)) {
-      await setShown($, true)
-      return card(roll(saved.soul!.seed), saved.soul!)
-    }
-    return hatchBuddy($, seedOf(await buddyAccount($, saved), saved.rerolls), 0)
-  }
-  if (!b.seed || !b.name) return NO_BUDDY
-  switch (verb) {
-    case 'pet':
-      await say($, { kind: 'pet' })
-      return `You pet ${b.name}. ♥`
-    case 'hide':
-      await setShown($, false)
-      return `${b.name} hides. /buddy show brings them back.`
-    case 'show':
-      await setShown($, true)
-      return `${b.name} is back.`
-    case 'reroll':
-      return (
-        rerollRefusal(await read($, allTime)) ??
-        `A Reroll abandons ${b.name} for a new Hatch: −${REROLL_COST} CP and a Debuff. /buddy reroll confirm to go through with it.`
-      )
-    case 'reroll confirm': {
-      if (b.egg !== undefined) return 'Wait for your egg to hatch first.'
-      const refusal = rerollRefusal(await read($, allTime))
-      if (refusal) return refusal
-      await award($, rerollAward, { kind: 'reroll' })
-      const next = { ...saved, rerolls: saved.rerolls + 1 }
-      await $.store.set(STORE_BUDDY, next)
-      // The goodbye Bubble shows first; the new egg cracks once it has been read.
-      return `${b.name} is gone.\n\n${await hatchBuddy($, seedOf(await buddyAccount($, next), next.rerolls), 4000)}`
-    }
-    default:
-      return 'Usage: /buddy [pet | hide | show | reroll]'
-  }
-}
-
 // ------------------------------------------------------------------------------------------- the voice
 
 /** The Verdict for a Notable Turn: a model-written line when the quip writer is free, the plain one otherwise. */
@@ -998,8 +774,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'watch-pr', description: "Sponsor Mail: watch this branch's PR" })
     await $.command.register({ name: 'unwatch-pr', description: 'Sponsor Mail: stop watching the PR' })
     await $.command.register({ name: 'beast', description: "Beast Watch: look at Beast's health now" })
-    await $.command.register({ name: 'buddy', description: 'Buddy: hatch or show your dungeon pet (pet, hide, show, reroll)' })
-    await startBuddy($)
+    await startCues($)
     startMail($)
     beastHost = hostOf(llamaUrlOf(await piEnv($)) ?? '')
     if ((await read($, beast)).isAwake) beastTicks($)
@@ -1102,16 +877,23 @@ export const register: Register = on => {
     return r
   }).catch(($, e, next) => next(e))
 
-  // --------------------------------------------------------------------------------------------- Buddy
+  // ---------------------------------------------------------------------------------------------- Cues
 
-  // A /clear starts the session over with fresh state and no session.start: the kept Buddy comes back here.
+  // A /clear starts the session over with fresh state and no session.start: the Cue is written again here.
   on('classic.SessionStart', async ($, e, next) => {
     const r = await next(e)
-    if (e.source === 'clear') await startBuddy($)
+    if (e.source === 'clear') await startCues($)
     return r
   }).catch(($, e, next) => next(e))
 
-  on('command.run', { command: 'buddy' }, async ($, e) => ({ text: await buddyCommand($, e.args) }))
+  // dungeon-buddy's Buddy was Rerolled or hatched legendary: priced here, off its dispatch. Its Bubble already
+  // said it, so the Award announces no Cue back.
+  on('state.set', { plugin: 'dungeon-buddy', key: 'cue' }, async ($, e, next) => {
+    const r = await next(e)
+    const a = awardOfBuddyCue(e.value)
+    if (a) $.clock.after(0, () => void award($, a, null).catch(() => undefined))
+    return r
+  }).catch(($, e, next) => next(e))
 
   // ------------------------------------------------------------------------------------------ TDD Band
 
@@ -1130,9 +912,7 @@ export const register: Register = on => {
     const t = await read($, tdd)
     const fight = newestBoss(await read($, bosses))
     const w = await read($, mailWatch)
-    const b = await read($, buddy)
-    const hasBuddy = b.isShown && (b.egg !== undefined || (!!b.seed && !!b.name))
-    if (!isShown(t) && !fight && !w && !hasBuddy) return next(e)
+    if (!isShown(t) && !fight && !w) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const checks = w && tally(w.checks)
     const mailRow = w && checks && (
@@ -1203,41 +983,16 @@ export const register: Register = on => {
         ))}
       </Box>
     )
-    const hatch = b.seed ? roll(b.seed) : undefined
-    const tint = hatch && (hatch.isShiny ? 'cyan' : RARITY_COLOR[hatch.rarity])
-    const sprite = (lines: readonly string[], color?: string) => (
+    const rows = [bossRow, mailRow, tddRow].filter(r => !!r)
+    if (rows.length === 0) return next(e)
+    // What the plugins beneath draw (dungeon-buddy's Buddy) goes under the System's rows, never in place of them.
+    const below = await next(e)
+    return (
       <Box flexDirection="column">
-        {lines.map((l, i) => (
-          <Text key={`s${i}`} color={color}>
-            {l}
-          </Text>
-        ))}
+        {rows}
+        {below}
       </Box>
     )
-    const buddyRow =
-      hasBuddy &&
-      (b.egg !== undefined ? (
-        <Box key="buddy" justifyContent="flex-end">
-          {sprite(EGG[b.egg] ?? EGG[0]!)}
-        </Box>
-      ) : hatch && b.bubble ? (
-        <Box key="buddy" justifyContent="flex-end" alignItems="center" gap={1}>
-          <Box borderStyle="round" paddingX={1}>
-            <Text wrap="truncate-end">{b.bubble}</Text>
-          </Box>
-          {sprite(spriteOf(hatch), tint)}
-        </Box>
-      ) : (
-        hatch &&
-        b.name && (
-          <Box key="buddy" justifyContent="flex-end">
-            <Text color={tint}>{restLine(hatch, b.name, b.pose)}</Text>
-          </Box>
-        )
-      ))
-    const rows = [bossRow, mailRow, tddRow, buddyRow].filter(r => !!r)
-    if (rows.length === 0) return next(e)
-    return rows.length === 1 ? rows[0]! : <Box flexDirection="column">{rows}</Box>
   })
 
   // ------------------------------------------------------------------------------------------ the voice
@@ -1265,7 +1020,7 @@ export const register: Register = on => {
     spinner = undefined
     if (!stats || e.reason !== 'answer' || !isNotable(stats)) return r
     const text = await verdict($, stats)
-    sayLater($, { kind: 'verdict', text })
+    await announceCue($, { kind: 'verdict', text })
     return { ...r, text }
   })
 

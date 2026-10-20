@@ -5,15 +5,15 @@
     "email": ""
   },
   "metadata": {
-    "description": "Development tools plugin: auto-formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, and skills",
+    "description": "Development tools plugin: auto-formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, and skills; plus Buddy, a dungeon pet mod",
     "pluginRoot": "."
   },
   "plugins": [
     {
       "name": "dotfiles-dev-tools",
       "source": "./claude-plugin",
-      "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, grill-with-docs, pi-implementer (a local model implements Tickets through pi + pi-vcc under Claude Code's supervision), and second-opinion (Muse Code reviews Diffs and Plans read-only; Claude verifies and rebuts), plus mods: Crawler Points HUD, Dispatch Board, Podman Guard, Branch Guard, TDD Band, Floor Boss, Sponsor Mail (PR watch), Beast Watch (GPU box health + Beast Guard), Buddy (your dungeon pet, /buddy) and the System's voice",
-      "version": "0.9.3",
+      "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, grill-with-docs, pi-implementer (a local model implements Tickets through pi + pi-vcc under Claude Code's supervision), and second-opinion (Muse Code reviews Diffs and Plans read-only; Claude verifies and rebuts), plus mods: Crawler Points HUD, Dispatch Board, Podman Guard, Branch Guard, TDD Band, Floor Boss, Sponsor Mail (PR watch), Beast Watch (GPU box health + Beast Guard) and the System's voice (its Cues are heard by dungeon-buddy)",
+      "version": "0.10.0",
       "author": {
         "name": "Anthony Bible"
       },
@@ -37,6 +37,24 @@
         "muse"
       ],
       "category": "development"
+    },
+    {
+      "name": "dungeon-buddy",
+      "source": "./dungeon-buddy",
+      "description": "Buddy: /buddy hatches your dungeon pet from your account. It sits above the prompt, fidgets, and talks about your session's Mishaps and Long Hauls, or, with dotfiles-dev-tools installed, back to the System's Cues (a Reroll then costs Crawler Points)",
+      "version": "0.1.0",
+      "author": {
+        "name": "Anthony Bible"
+      },
+      "repository": "https://github.com/Anthony-Bible/dotfiles",
+      "license": "MIT",
+      "keywords": [
+        "mod",
+        "pet",
+        "buddy",
+        "fun"
+      ],
+      "category": "fun"
     }
   ]
 }

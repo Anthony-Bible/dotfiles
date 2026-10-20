@@ -1,8 +1,6 @@
 // Buddy's pure half: the Hatch a seed rolls, the sprite and face it draws, which moments it speaks about, and
 // the canned Bubbles it falls back on. No `$` here.
 
-import { STREAK_MILESTONES, type Award, type Score } from './points'
-
 export const SPECIES = [
   'duck',
   'goose',
@@ -236,10 +234,11 @@ export const card = (h: Hatch, soul: Pick<Soul, 'name' | 'personality'>): string
 
 // ------------------------------------------------------------------------------------------- moments
 
-export type Moment =
-  | { kind: 'hatched' }
-  | { kind: 'pet' }
-  | { kind: 'reroll' }
+/**
+ * A Cue of the show, as dotfiles-dev-tools announces it (its mods/cue.ts): change one only together with it.
+ * dungeon-buddy runs without that plugin, so a Cue is checked by `cueOf` before the Buddy believes it.
+ */
+export type Cue =
   | { kind: 'boss-summoned'; name: string }
   | { kind: 'boss-slain'; name: string }
   | { kind: 'achievement'; name: string }
@@ -251,18 +250,56 @@ export type Moment =
   | { kind: 'red-pr'; names: string[] }
   | { kind: 'verdict'; text: string }
 
-/** A Streak this long or longer is worth mourning when a red Check breaks it. */
-const MOURNED_STREAK = 3
+export type Moment =
+  | { kind: 'hatched' }
+  | { kind: 'pet' }
+  | { kind: 'reroll' }
+  | { kind: 'mishap'; command: string }
+  | { kind: 'long-haul'; toolCalls: number; minutes: number }
+  | Cue
 
-/** What an Award gives the Buddy to talk about, if anything: a first Debuff, an Achievement, a Streak's turn. */
-export const momentOfAward = (a: Award, before: Score, after: Score): Moment | undefined => {
-  if (a.isGreen === false && before.streak >= MOURNED_STREAK) return { kind: 'streak-broken', count: before.streak }
-  if (a.achievement) return { kind: 'achievement', name: a.achievement }
-  if (a.debuff && a.debuff !== before.debuff) return { kind: 'debuff', name: a.debuff }
-  if (a.isGreen === true && (STREAK_MILESTONES as readonly number[]).includes(after.streak)) {
-    return { kind: 'streak', count: after.streak }
+const isText = (v: unknown): v is string => typeof v === 'string' && v !== ''
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** The Cue in what dotfiles-dev-tools wrote, or undefined when it holds none this Buddy knows. */
+export const cueOf = (value: unknown): Cue | undefined => {
+  const c = (value as { cue?: Record<string, unknown> } | undefined)?.cue
+  switch (c?.kind) {
+    case 'boss-summoned':
+    case 'boss-slain':
+    case 'achievement':
+    case 'debuff':
+      return isText(c.name) ? { kind: c.kind, name: c.name } : undefined
+    case 'streak':
+    case 'streak-broken':
+      return isCount(c.count) ? { kind: c.kind, count: c.count } : undefined
+    case 'collapse':
+      return { kind: 'collapse' }
+    case 'mail':
+      return isText(c.author) ? { kind: 'mail', author: c.author } : undefined
+    case 'red-pr':
+      return Array.isArray(c.names) && c.names.every(isText) ? { kind: 'red-pr', names: [...c.names] } : undefined
+    case 'verdict':
+      return isText(c.text) ? { kind: 'verdict', text: c.text } : undefined
+    default:
+      return undefined
   }
-  return undefined
+}
+
+/** A turn this busy or this long is a Long Haul. */
+export const LONG_HAUL_CALLS = 20
+export const LONG_HAUL_MS = 5 * 60_000
+
+/** The Long Haul a finished turn was, if it was one. */
+export const longHaulOf = (toolCalls: number, durationMs: number): Moment | undefined =>
+  toolCalls >= LONG_HAUL_CALLS || durationMs >= LONG_HAUL_MS
+    ? { kind: 'long-haul', toolCalls, minutes: Math.round(durationMs / 60_000) }
+    : undefined
+
+/** The Mishap a failed Bash line was: the line, cut short enough to quote. */
+export const mishapOf = (command: string): Moment => {
+  const line = command.trim().split('\n')[0]!.trim()
+  return { kind: 'mishap', command: line.length > 60 ? `${line.slice(0, 59)}…` : line }
 }
 
 /** A moment the Buddy always answers, whatever its gap and CHAOS. */
@@ -376,6 +413,10 @@ const what = (m: Moment): string => {
       return `CI just went red on the Crawler's pull request: ${m.names.join(', ')}.`
     case 'verdict':
       return `The System just delivered this verdict on the Crawler's turn: "${m.text}". Talk back to it.`
+    case 'mishap':
+      return `The Crawler's shell command just failed: ${m.command}`
+    case 'long-haul':
+      return `The Crawler just finished a turn of ${m.toolCalls} tool calls over ${m.minutes} minutes.`
   }
 }
 
@@ -406,6 +447,8 @@ const CANNED: Record<Moment['kind'], readonly string[]> = {
   mail: ['Someone has opinions on your PR.', 'Mail! Is it fan mail?', 'Reviewers. Gross.'],
   'red-pr': ['CI is red. I blame the robot.', "It works on my machine. I'm a pet.", 'Red is a bold color choice.'],
   verdict: ['Boo! Get a new host!', "Don't listen to him, you did great.", "He's just jealous of my ratings."],
+  mishap: ['Exit code says no.', 'I saw nothing. Run it again.', "That one's on the shell. Probably."],
+  'long-haul': ['Are we there yet?', 'I took a nap. Did we win?', 'Long floor. I need a snack.'],
 }
 
 /** A Bubble without the model, chosen by `r` in [0, 1). */
@@ -414,24 +457,16 @@ export const cannedBubble = (m: Moment, r: number): string => {
   return lines[Math.floor(r * lines.length) % lines.length]!
 }
 
-// ------------------------------------------------------------------------------------------- awards
+// ------------------------------------------------------------------------------------------- the Reroll
 
+/** What a Reroll costs while dotfiles-dev-tools keeps Crawler Points; its mods/cue.ts charges it: keep them equal. */
 export const REROLL_COST = 500
 
-export const rerollAward: Award = {
-  points: -REROLL_COST,
-  event: 'abandoned their Buddy for a new Hatch',
-  debuff: 'Abandonment Issues',
-}
-
-export const legendaryAward = (h: Hatch): Award => ({
-  points: 50,
-  event: `hatched a legendary ${h.species} Buddy`,
-  achievement: 'Pulled a Legendary (the Syndicate demands a merch deal)',
-})
-
-/** Why a Reroll can't happen, or undefined when the all-time total pays for it. */
+/** Why a Reroll can't happen while Points runs, or undefined when the all-time total pays for it. */
 export const rerollRefusal = (allTime: number): string | undefined =>
   allTime < REROLL_COST
     ? `A Reroll costs ${REROLL_COST} CP of your all-time total, and you have ${allTime}. Your Buddy stays.`
     : undefined
+
+/** The Reroll's price as `/buddy reroll` states it: CP and a Debuff with Points running, nothing without. */
+export const rerollPrice = (hasPoints: boolean): string => (hasPoints ? `−${REROLL_COST} CP and a Debuff` : 'free')
