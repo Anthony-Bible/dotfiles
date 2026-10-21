@@ -161,7 +161,7 @@ export const hottestLimit = (rateLimits: Usage['rateLimits']): string | undefine
 
 export const statusLine = (score: Score, allTime: number, usage?: Usage): string =>
   [
-    `🎟 ${score.session.toLocaleString('en-US')} CP`,
+    `🎟 ${score.session.toLocaleString('en-US')} CP (${allTime.toLocaleString('en-US')} total)`,
     `Lv ${level(allTime)}`,
     score.streak > 0 ? `🔥${score.streak}` : undefined,
     score.debuff ? `Debuff: ${score.debuff}` : undefined,

@@ -43,18 +43,63 @@ describe('Crawler Points scores tool calls', () => {
     bash(on, () => isRed)
 
     await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
-    expect(seen.statuses.at(-1)).toBe('🎟 10 CP · Lv 1 · 🔥1')
+    expect(seen.statuses.at(-1)).toBe('🎟 10 CP (10 total) · Lv 1 · 🔥1')
 
     isRed = true
     await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
-    expect(seen.statuses.at(-1)).toBe('🎟 -5 CP · Lv 1 · Debuff: Red Build')
+    expect(seen.statuses.at(-1)).toBe('🎟 -5 CP (-5 total) · Lv 1 · Debuff: Red Build')
 
     isRed = false
     await $.tool.call({ tool: 'Bash', command: 'git commit -m "x"' })
     await $.tool.call({ tool: 'Bash', command: 'git push --force origin feat/x' })
-    expect(seen.statuses.at(-1)).toBe('🎟 -180 CP · Lv 1 · Debuff: Shame')
+    expect(seen.statuses.at(-1)).toBe('🎟 -180 CP (-180 total) · Lv 1 · Debuff: Shame')
     expect(seen.store.get('crawler-points.allTime')).toBe(-180)
     expect(seen.store.get('crawler-points.unlocked')).toEqual(['Compiled On The First Try'])
+  })
+
+  // Every Award banks onto the all-time total as the store holds it now: another session's points, written
+  // while this one ran, and a /clear's fresh state never take the total back to what this session last saw.
+  const sessionCp = (seen: ReturnType<typeof watch>) => Number(seen.statuses.at(-1)?.match(/^🎟 (-?\d+) CP/)?.[1])
+
+  test('points another session banked while this one ran are kept', async ($, on) => {
+    mock.clock(on)
+    const seen = watch(on)
+    git(on, () => 'feat/x')
+    bash(on, () => false)
+    seen.store.set('crawler-points.allTime', 1000)
+    await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
+    const before = sessionCp(seen)
+
+    seen.store.set('crawler-points.allTime', 5000) // another session's Awards
+    await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
+    expect(seen.store.get('crawler-points.allTime')).toBe(5000 + sessionCp(seen) - before)
+  })
+
+  test('after a /clear the HUD shows the stored level and the next Award adds to the stored total', async ($, on) => {
+    mock.clock(on)
+    const seen = watch(on)
+    git(on, () => 'feat/x')
+    bash(on, () => false)
+    on('classic.SessionStart', async () => ({})) // no settings hook beneath
+    on('session.usage', async () => ({ value: { context: {}, rateLimits: [] } as never }))
+    seen.store.set('crawler-points.allTime', 16325)
+
+    await $.classic.SessionStart({ source: 'clear' })
+    expect(seen.statuses.at(-1)).toBe('🎟 0 CP (16,325 total) · Lv 13')
+
+    await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
+    expect(seen.store.get('crawler-points.allTime')).toBe(16325 + sessionCp(seen))
+  })
+
+  test('Awards that land at once all reach the stored total', async ($, on) => {
+    mock.clock(on)
+    const seen = watch(on)
+    git(on, () => 'feat/x')
+    bash(on, () => false)
+    seen.store.set('crawler-points.allTime', 200)
+
+    await Promise.all(Array.from({ length: 5 }, () => $.tool.call({ tool: 'Bash', command: 'go test ./...' })))
+    expect(seen.store.get('crawler-points.allTime')).toBe(200 + sessionCp(seen))
   })
 
   test('a failing command that is not a check or a milestone does not score', async ($, on) => {
