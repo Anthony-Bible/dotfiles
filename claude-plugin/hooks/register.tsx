@@ -198,6 +198,8 @@ let postGen = 0
 /** Beast Watch: its timer, whether a look is in flight, and Beast's host for waking on use. */
 let beastTimer: { cancel: () => void } | undefined
 let isBeastLooking = false
+/** The last Award's banking onto the stored all-time total; the next one waits on it. */
+let banking: Promise<unknown> = Promise.resolve()
 let beastTickCount = 0
 let beastHost: string | undefined
 
@@ -474,14 +476,17 @@ async function award($: EngineInterface, a: Award, c?: Cue | null): Promise<void
   if (turn) turn = { ...turn, points: turn.points + a.points, events: [...turn.events, a.event] }
   const before = await read($, score)
   const after = await update($, score, s => apply(s, a))
-  const total = await update($, allTime, t => t + a.points)
-  await $.store.set(STORE_ALL_TIME, total)
-  let isNewEver = false
-  if (a.achievement) {
+  const isNewEver = await bank(async () => {
+    // Onto the total as stored now, not as this session last saw it: other sessions bank onto it too.
+    const total = storedTotal(await $.store.get(STORE_ALL_TIME)) + a.points
+    await $.store.set(STORE_ALL_TIME, total)
+    await update($, allTime, () => total)
+    if (!a.achievement) return false
     const unlocked = ((await $.store.get(STORE_UNLOCKED)) as string[] | undefined) ?? []
-    isNewEver = !unlocked.includes(a.achievement)
-    if (isNewEver) await $.store.set(STORE_UNLOCKED, [...unlocked, a.achievement])
-  }
+    if (unlocked.includes(a.achievement)) return false
+    await $.store.set(STORE_UNLOCKED, [...unlocked, a.achievement])
+    return true
+  })
   await showScore($)
   // Off the caller's dispatch: a tool call never waits on the quip.
   $.clock.after(0, () => void announce($, a, after, isNewEver).catch(() => undefined))
@@ -499,9 +504,25 @@ async function startCues($: EngineInterface): Promise<void> {
   await update($, cue, s => ({ ...s }))
 }
 
+const storedTotal = (stored: unknown): number => {
+  const n = Number(stored ?? 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * Runs `fn` after every banking this process started before it: each read-add-write of the stored total
+ * then sees the last one's write. The engine locks each store write across sessions, never a read and the
+ * write after it, so two sessions banking in the same instant can still lose one of the two.
+ */
+function bank<T>(fn: () => Promise<T>): Promise<T> {
+  const r = banking.then(fn)
+  banking = r.catch(() => undefined)
+  return r
+}
+
 async function startPoints($: EngineInterface): Promise<void> {
-  const stored = Number((await $.store.get(STORE_ALL_TIME)) ?? 0)
-  await update($, allTime, () => (Number.isFinite(stored) ? stored : 0))
+  const stored = storedTotal(await $.store.get(STORE_ALL_TIME))
+  await update($, allTime, () => stored)
   hasChecked = false
   const u = await $.session.usage()
   usage = { contextPercent: u.context.percent, usd: u.cost?.usd, rateLimits: u.rateLimits }
@@ -879,10 +900,14 @@ export const register: Register = on => {
 
   // ---------------------------------------------------------------------------------------------- Cues
 
-  // A /clear starts the session over with fresh state and no session.start: the Cue is written again here.
+  // A /clear starts the session over with fresh state and no session.start: the all-time total is read back
+  // and the Cue written again here.
   on('classic.SessionStart', async ($, e, next) => {
     const r = await next(e)
-    if (e.source === 'clear') await startCues($)
+    if (e.source === 'clear') {
+      await startPoints($)
+      await startCues($)
+    }
     return r
   }).catch(($, e, next) => next(e))
 

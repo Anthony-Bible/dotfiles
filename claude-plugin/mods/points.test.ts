@@ -152,6 +152,17 @@ describe('level and status line', () => {
     expect(statusLine({ session: 5, streak: 2, debuff: 'Hubris' }, 0)).toContain('Debuff: Hubris')
     expect(statusLine({ session: 5, streak: 0 }, 0)).not.toContain('Debuff')
   })
+
+  test('the all-time total follows the session score in parentheses, whatever their signs', () => {
+    const r = rng(11)
+    for (let i = 0; i < RUNS; i++) {
+      const session = Math.floor((r() - 0.5) * 20_000)
+      const allTime = Math.floor((r() - 0.3) * 2_000_000)
+      const line = statusLine({ session, streak: 0 }, allTime)
+      const cp = `${session.toLocaleString('en-US')} CP (${allTime.toLocaleString('en-US')} total)`
+      expect(line.startsWith(`🎟 ${cp} · Lv `)).toBe(true)
+    }
+  })
 })
 
 describe('cleanQuip', () => {
@@ -187,7 +198,7 @@ describe('the HUD shows usage', () => {
 
   test('context, the hottest window and cost follow the score, each only when known', () => {
     const score = { session: 40, streak: 0 }
-    expect(statusLine(score, 0, { rateLimits: [] })).toBe('🎟 40 CP · Lv 1')
+    expect(statusLine(score, 0, { rateLimits: [] })).toBe('🎟 40 CP (0 total) · Lv 1')
     expect(
       statusLine(score, 0, {
         contextPercent: 61.6,
@@ -197,7 +208,7 @@ describe('the HUD shows usage', () => {
           { kind: 'seven_day', percentUsed: 55 },
         ],
       }),
-    ).toBe('🎟 40 CP · Lv 1 · ctx 62% · 5h 71% · $4.12')
+    ).toBe('🎟 40 CP (0 total) · Lv 1 · ctx 62% · 5h 71% · $4.12')
   })
 })
 
