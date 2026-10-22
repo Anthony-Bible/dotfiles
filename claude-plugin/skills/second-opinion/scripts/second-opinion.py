@@ -33,7 +33,7 @@ The 10-minute budget covers the review and the Rebuttal together. Runs are kept 
 Python 3.8+, stdlib only. Runs through `uv run --script` (PEP 723 metadata above); `python3 second-opinion.py`
 works too.
 """
-import argparse, json, os, shutil, signal, subprocess, sys, tempfile, time, uuid
+import argparse, json, os, re, shutil, signal, subprocess, sys, tempfile, time, uuid
 
 EXIT_OK, EXIT_USAGE, EXIT_UNAVAILABLE, EXIT_SKIPPED = 0, 2, 3, 4
 MIN_CODE_LINES = 20
@@ -42,6 +42,7 @@ NON_CODE_EXT = {".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".yaml", ".yml"
                 ".conf", ".csv", ".lock", ".sum", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf"}
 LOCKFILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "go.sum", "Cargo.lock", "poetry.lock",
              "uv.lock", "flake.lock", "Gemfile.lock", "composer.lock"}
+OMITTED_NOTE = "[not UTF-8, so its content is left out; read the file in your working directory]\n"
 MUSE_FLAGS = ["--json", "--disable-write", "--disable-web-tools", "--no-foreign-personal-context"]
 
 FINDING = {"type": "object", "additionalProperties": False,
@@ -83,7 +84,9 @@ def unavailable(reason, **extra):
 
 
 def git(*args, env=None):
-    return subprocess.run(["git", *args], capture_output=True, text=True, env=env, check=True).stdout.strip()
+    # git output is not always UTF-8; a stray byte becomes U+FFFD rather than failing the Review
+    return subprocess.run(["git", *args], capture_output=True, encoding="utf-8", errors="replace", env=env,
+                          check=True).stdout.strip()
 
 
 def repo_root():
@@ -129,14 +132,27 @@ def is_code(path):
 
 
 def diff_stats(base, snap):
-    files, code_lines = [], 0
-    for line in git("diff", "--numstat", base, snap).splitlines():
+    """The stats and the Diff text. A file whose part of the Diff is not UTF-8 is binary that git took for text
+    (no NUL byte, e.g. a raw audio fixture): the Diff keeps its header line only, and it counts as no code."""
+    numstat = git("diff", "--numstat", base, snap).splitlines()
+    raw = subprocess.run(["git", "diff", base, snap], capture_output=True, check=True).stdout
+    parts = [p for p in re.split(rb"(?m)^(?=diff --git )", raw) if p]
+    paired = len(parts) == len(numstat)  # git lists the files in the same order in both
+    files, code_files, code_lines, omitted, kept = [], [], 0, [], []
+    for i, line in enumerate(numstat):
         added, deleted, path = line.split("\t", 2)
-        changed = 0 if added == "-" else int(added) + int(deleted)
         files.append(path)
+        try:
+            kept.append(parts[i].decode("utf-8") if paired else "")
+        except UnicodeDecodeError:
+            omitted.append(path)
+            kept.append(parts[i].split(b"\n", 1)[0].decode("utf-8", "replace") + "\n" + OMITTED_NOTE)
+            continue
         if is_code(path):
-            code_lines += changed
-    return {"files": files, "code_files": [f for f in files if is_code(f)], "code_lines": code_lines}
+            code_files.append(path)
+            code_lines += 0 if added == "-" else int(added) + int(deleted)
+    diff = "".join(kept) if paired else raw.decode("utf-8", "replace")  # cannot pair them up: keep every byte
+    return {"files": files, "code_files": code_files, "code_lines": code_lines, "omitted": omitted}, diff.strip()
 
 
 def remove_worktree(path):
@@ -148,7 +164,7 @@ def remove_worktree(path):
 def run_muse(root, run, turn, prompt, schema, meta):
     """One `muse exec` turn in a fresh worktree of the snapshot; returns the parsed final answer."""
     paths = {k: os.path.join(run, f"turn{turn}.{k}") for k in ("prompt.md", "schema.json", "jsonl", "stderr")}
-    with open(paths["prompt.md"], "w") as f:
+    with open(paths["prompt.md"], "w", encoding="utf-8") as f:
         f.write(prompt)
     with open(paths["schema.json"], "w") as f:
         json.dump(schema, f)
@@ -191,7 +207,7 @@ def run_muse(root, run, turn, prompt, schema, meta):
                 continue  # stderr noise, or a line cut off when muse died
             if isinstance(rec, dict) and rec.get("payload_type", "").startswith("run.terminal."):
                 terminal = rec["payload"]
-    tail = open(paths["stderr"]).read().strip().splitlines()[-3:]
+    tail = open(paths["stderr"], errors="replace").read().strip().splitlines()[-3:]
     if not terminal or terminal.get("terminal") != "completed":
         detail = (terminal or {}).get("reason") or " | ".join(tail) or "no final answer in the event stream"
         return None, f"muse exited {proc.returncode}: {detail}"
@@ -237,13 +253,12 @@ def cmd_review(a):
     intent = f"The Author's stated intent: {a.intent}\n\n" if a.intent else ""
     if a.target == "diff":
         base = git("rev-parse", "HEAD") if a.base == "HEAD" else git("merge-base", a.base, "HEAD")
-        stats = diff_stats(base, snap)
+        stats, diff = diff_stats(base, snap)
         if not stats["files"]:
             out({"status": "skipped", "reason": "no changes to review"}, EXIT_SKIPPED)
         if a.auto and (not stats["code_files"] or stats["code_lines"] < MIN_CODE_LINES):
             out({"status": "skipped", "reason": f"below the auto threshold: {stats['code_lines']} changed code "
                  f"lines in {len(stats['code_files'])} code files (needs {MIN_CODE_LINES})", **stats}, EXIT_SKIPPED)
-        diff = git("diff", base, snap)
         prompt = (ROLE + f"The Review Target is a Diff: `git diff {base} HEAD` in your working directory (HEAD is "
                   "the snapshot of the Author's work). Review it for correctness.\n\n" + intent + RULES +
                   "Give file as a repository-relative path and line as the line number in the new version; set "
@@ -252,7 +267,7 @@ def cmd_review(a):
         if not os.path.isfile(a.plan):
             unavailable(f"no such Plan file: {a.plan}")
         stats, base = {}, None
-        plan = open(a.plan).read()
+        plan = open(a.plan, encoding="utf-8", errors="replace").read()
         prompt = (ROLE + "The Review Target is a Plan the Author wrote before writing any code. Find the gaps, wrong "
                   "assumptions about the existing code, missed edge cases and steps that would not work as written. "
                   "Check every assumption about the codebase against the repository.\n\n" + intent + RULES +
