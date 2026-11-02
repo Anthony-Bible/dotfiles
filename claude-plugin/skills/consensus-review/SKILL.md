@@ -36,7 +36,12 @@ Reviewers judge correctness against it.
 Launch all **9** reviewers **in a single message** with the Agent tool (`subagent_type: general-purpose`)
 so they run in parallel. A Round is a set of three independent Lens reviews; Rounds never see each
 other's output, which is what makes the Vote meaningful. Label each one `r<round>-<lens>` (e.g.
-`r2-security`).
+`r2-security`). Launching them together also means you have no results yet that could leak into a later
+Round's prompt.
+
+If launches fail on rate or concurrency limits, fall back to running Round by Round (3 per message).
+Use the **identical** prompts, never mention earlier Rounds' results to later ones, and don't re-run a
+reviewer that already returned.
 
 Every reviewer prompt is the **shared preamble** below, followed by its Lens brief. The three Rounds use
 identical prompts, so any disagreement comes from independent sampling and not from different
