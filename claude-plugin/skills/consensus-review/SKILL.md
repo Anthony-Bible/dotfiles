@@ -1,22 +1,29 @@
 ---
 name: consensus-review
-description: Three-round consensus code review. Each round runs three read-only reviewer subagents (Security, Optimizer/Cleaner, Bug Hunter) against the same frozen Diff, and the user sees only medium+ Findings that a majority of rounds found independently, which filters out one-off nitpicks and the endless fix-and-refind loop. A high/critical Finding only one round caught gets checked by an independent Verifier instead of being dropped. Use when the user asks for a "consensus review", "three-round review" or "thorough multi-agent review" of a diff, branch, PR/MR or path. Report first, then offer to fix.
+description: Verified multi-agent code review. Three read-only reviewer subagents (Security, Optimizer/Cleaner, Bug Hunter) review the same frozen Diff once; every distinct medium+ Finding then goes to its own blind, adversarial Verifier, and the user sees only Findings the reviewer and the Verifier independently agree on. Evidence from the code decides, not how many reviewers repeated a claim, so plausible false positives get refuted and real one-off bugs survive. Use when the user asks for a "consensus review", "verified review" or "thorough multi-agent review" of a diff, branch, PR/MR or path. Report first, then offer to fix.
 argument-hint: "[branch | PR/MR number | path ...] (default: uncommitted diff, else branch vs default branch)"
 ---
 
 # consensus-review
 
-You are the **Orchestrator**. You freeze one **Review Target**, run **3 Rounds** of **3 Lenses** each
-(9 reviewer subagents in total), cluster what they report into **Findings**, and show the user only the
-Findings that survive the **Vote**. Reviewers never edit anything. You don't fix anything until the user
+You are the **Orchestrator**. You freeze one **Review Target**, run **3 Lens reviewers** once, cluster
+what they report into **Candidates**, send every Candidate to its own blind **Verifier**, and show the
+user only the **Findings** the Verifier confirms. The consensus is between two independent agents: the
+reviewer that made the claim and the Verifier that checked it against the code without seeing the
+reviewer's reasoning. Reviewers and Verifiers never edit anything. You don't fix anything until the user
 says so.
+
+Why not repeated rounds and a majority vote: identical prompts on the same model make correlated
+mistakes, so a plausible false positive wins a vote 3/3, while a real bug that only one sample noticed
+loses it. Verification against the code catches the first and keeps the second.
 
 User input: $ARGUMENTS
 
 ## 1. Freeze the Review Target
 
-Resolve the target from `$ARGUMENTS` and write it to `<scratchpad>/consensus-review/target.diff`, so all
-nine reviewers judge exactly the same bytes even if the working tree changes partway through.
+Resolve the target from `$ARGUMENTS` and write it to `<scratchpad>/consensus-review/target.diff`, so
+every reviewer and Verifier judges exactly the same bytes even if the working tree changes partway
+through.
 
 | `$ARGUMENTS` | Command |
 |---|---|
@@ -29,29 +36,20 @@ nine reviewers judge exactly the same bytes even if the working tree changes par
 Drop lockfiles, generated code (`*.pb.go`, `*_gen.go`, `vendor/`, `dist/`) and binaries from the diff.
 If nothing is left, tell the user there's nothing to review and stop. Also write one line of **Intent**
 (what the change is for), taken from the commit messages, the PR/MR description or the conversation.
-Reviewers judge correctness against it.
+Reviewers and Verifiers judge correctness against it.
 
-## 2. Run the Rounds
+## 2. Run the Lens reviewers
 
-Launch all **9** reviewers **in a single message** with the Agent tool (`subagent_type: general-purpose`)
-so they run in parallel. A Round is a set of three independent Lens reviews; Rounds never see each
-other's output, which is what makes the Vote meaningful. Label each one `r<round>-<lens>` (e.g.
-`r2-security`). Launching them together also means you have no results yet that could leak into a later
-Round's prompt.
-
-If launches fail on rate or concurrency limits, fall back to running Round by Round (3 per message).
-Use the **identical** prompts, never mention earlier Rounds' results to later ones, and don't re-run a
-reviewer that already returned.
-
-Every reviewer prompt is the **shared preamble** below, followed by its Lens brief. The three Rounds use
-identical prompts, so any disagreement comes from independent sampling and not from different
-instructions.
+Launch the **3** reviewers **in a single message** with the Agent tool (`subagent_type:
+general-purpose`) so they run in parallel. Label them `review-security`, `review-optimizer` and
+`review-bugs`. Each prompt is the **shared preamble** below followed by its Lens brief.
 
 ### Shared preamble
 
 ```
-You are a code reviewer in an independent review panel. Other reviewers are looking at the same code;
-you will never see their results, so don't hold back and don't pad.
+You are a code reviewer in an independent review panel. Other reviewers are looking at the same code,
+and every finding you report will be checked against the code by someone else, so don't hold back, but
+don't report anything you can't back with a concrete failure.
 
 Review Target: <absolute path to target.diff or target.paths>
 Repository: <absolute repo root>. Read surrounding code, callers, tests and configs there for context.
@@ -112,65 +110,74 @@ broken contracts with callers, behaviour that contradicts the Intent, and tests 
 testing what they claim. Read the callers before claiming a contract is broken.
 ```
 
-If a reviewer returns malformed output, parse what you can. If it returns nothing usable, count that
-Round's Lens as "no findings" and note it in the report. Don't re-run it, because a re-run gets an
-extra vote.
+If a reviewer returns malformed output, parse what you can. If it returns nothing usable, note it in
+the report as a Lens with no usable output. Don't re-run it.
 
-## 3. Cluster and Vote
+## 3. Build the Candidates
 
-1. **Pool** all findings from all 9 reviewers, tagged with their Round.
-2. **Cluster** findings that describe the **same underlying defect**: same file, overlapping or nearby
-   lines, same root cause. Lens doesn't matter: a SQL injection reported by r1-security and by
-   r2-bugs is one Finding. Two different problems on the same line are two Findings. When unsure,
-   keep them separate.
-3. **Vote:** for each Finding, count the **distinct Rounds** that reported it at **medium or higher**.
-   Several reports from the same Round count once.
-4. **Surface** a Finding when that count is **≥ 2 of 3 Rounds**. A Finding with only **one** vote
-   that was rated **high or critical** is a **Lone Finding**: it goes to step 4 (Verify) instead of being
-   dropped. Everything else is dropped: one-vote findings rated medium, and findings that a majority
-   found but rated low. A lens-majority rule isn't needed: each Round has one reviewer per Lens, so
-   2 of 3 same-Lens reviewers always means 2 of 3 Rounds.
-5. **Consensus severity** is the median of the medium+ ratings from the voting Rounds. With two votes,
-   take the lower one.
-6. Use the clearest title, failure_scenario and fix among the cluster's reports. Merge them only when
-   they complement each other.
+1. **Pool** the findings from all 3 reviewers, tagged with their Lens.
+2. **Drop low.** Findings rated low never reach a Verifier. This is what stops the fix-and-refind loop
+   of ever-smaller nitpicks.
+3. **Cluster** what's left: findings that describe the **same underlying defect** (same file,
+   overlapping or nearby lines, same root cause) become one Candidate, whatever Lens reported them. Two
+   different problems on the same line are two Candidates. When unsure, keep them separate.
+4. **Check the location.** If a Candidate's `file:line` plainly doesn't exist in the Review Target (a
+   hallucinated location), drop it and count it under Dropped.
+5. For each Candidate keep the clearest title, failure_scenario and fix among its reports, its
+   **reviewer severity** (the highest rating among its reports) and its Lens(es).
 
-Don't add Findings of your own and don't overrule the Vote on opinion. The only thing you may do is
-check that each surviving Finding's `file:line` exists in the Review Target. If it plainly doesn't (a
-hallucinated location), drop the Finding and say so under Dropped.
+Don't add Candidates of your own and don't drop any on opinion. Judging them is the Verifiers' job.
 
-## 4. Verify Lone Findings
+## 4. Verify every Candidate
 
-A majority vote silently drops a real critical bug that only one Round happened to catch. Lone
-Findings get one independent check instead. For each Lone Finding, launch one **Verifier** (Agent tool,
-`subagent_type: general-purpose`, label `verify-<n>`). Launch them all in one message.
+Launch one **Verifier** per Candidate (Agent tool, `subagent_type: general-purpose`, label
+`verify-<n>`), all in one message. If launches fail on rate or concurrency limits, fall back to
+batches of 5 per message with identical prompts, and don't re-run a Verifier that already returned.
 
 The Verifier gets the claim only: the location, the title and the failure_scenario. It **doesn't** get
-the reviewer's reasoning, fix or severity, so it isn't anchored on them. Its prompt:
+the reviewer's reasoning, fix, Lens or severity, so it isn't anchored on them. A Verifier handed a claim
+tends to agree with it, so the prompt makes refutation the default and demands evidence for anything
+else:
 
 ```
-You are verifying one claimed defect. You did not write the claim; assume nothing about whether it is
-true. READ-ONLY: never edit, write, or run anything that changes state.
+You are verifying one claimed defect. You did not write the claim, and most claims like it turn out
+to be wrong: a guard upstream, a caller that never passes that input, a type that rules it out, a test
+that covers it. Your job is to try to refute it. READ-ONLY: never edit, write, or run anything that
+changes state.
 
 Repository: <absolute repo root>
 Review Target: <absolute path to target.diff or target.paths>
+Intent: <one line>
 Claim: <file>:<line>: <title>
 Failure scenario: <failure_scenario>
 
-Read the code at that location plus its callers, guards, validation, tests and config. Decide whether
-the failure scenario can actually happen in this code as written. Evidence decides, not how plausible
-the claim sounds.
+Read the code at that location plus its callers, guards, validation, tests and config. Look for the
+reason the failure scenario can't happen. Return "confirmed" only if you can trace the scenario through
+the code as written: the input or state that reaches the line, and the missing guard that lets it go
+wrong. How plausible the claim sounds counts for nothing.
+
+Rate severity yourself, by impact in this codebase:
+  critical: exploitable now, data loss/corruption, or a crash on a common path
+  high:     likely wrong behaviour or a real vulnerability under realistic conditions
+  medium:   a real defect or meaningful cost that bites under specific conditions
+  low:      minor, cosmetic, stylistic or speculative
 
 Return ONLY JSON:
 {"verdict": "confirmed" | "refuted" | "unclear",
  "severity": "critical" | "high" | "medium" | "low",
- "evidence": "file:line references and one or two sentences"}
+ "evidence": "file:line references tracing the path (or the guard that refutes it), one or two sentences"}
 ```
 
-Surface a Lone Finding only when the verdict is `confirmed` **and** the Verifier's severity is high or
-critical. It goes in the report's **Single-round, verified** section, and its severity is the lower of
-the reviewer's rating and the Verifier's. `refuted`, `unclear`, or a downgrade below high → drop it and
-count it under Dropped. Verifiers never get a second pass and never vote on majority Findings.
+Decide each Candidate from its Verifier:
+
+- `confirmed` and Verifier severity medium or higher → **Finding**. Its severity is the **lower** of the
+  reviewer severity and the Verifier's.
+- `confirmed` but rated low → dropped as confirmed-but-low.
+- `unclear` with reviewer severity high or critical → listed under **Unverified** in the report, so a
+  possible critical bug isn't silently lost. Other `unclear` → dropped.
+- `refuted`, or a Verifier with no usable output → dropped.
+
+Verifiers never get a second pass, and you don't overrule a verdict on opinion.
 
 ## 5. Report
 
@@ -178,35 +185,36 @@ count it under Dropped. Verifiers never get a second pass and never vote on majo
 ## Consensus Review: <target description>
 <Intent>
 
-| # | Severity | Votes | Lens(es) | Location | Finding |
-|---|----------|-------|----------|----------|---------|
-| 1 | high | 3/3 | security, bugs | `pkg/db/query.go:42` | SQL injection via unescaped `name` |
+| # | Severity | Lens(es) | Location | Finding |
+|---|----------|----------|----------|---------|
+| 1 | high | security, bugs | `pkg/db/query.go:42` | SQL injection via unescaped `name` |
 
-### 1. <title>  (high, 3/3)
+### 1. <title>  (high)
 **Failure:** <failure_scenario>
+**Verifier:** <evidence>
 **Fix:** <fix>
 
-### Single-round, verified
-Found by only one Round, then confirmed by an independent Verifier. These didn't win the Vote.
+### Unverified
+Rated high/critical by a reviewer, but the Verifier couldn't confirm or refute it. Worth a manual look.
 
-| # | Severity | Lens | Location | Finding | Verifier evidence |
-|---|----------|------|----------|---------|-------------------|
-| 4 | critical | bugs (r3) | `pkg/x/y.go:88` | ... | ... |
+| Severity | Lens | Location | Claim | Verifier note |
+|----------|------|----------|-------|---------------|
+| critical | bugs | `pkg/x/y.go:88` | ... | ... |
 
 ---
-Raw reports: <N> from 9 reviewers → <M> distinct Findings → <K> by vote + <V> verified Lone Findings.
-Dropped: <a> one-vote medium, <b> majority-but-low, <r> Lone Findings refuted/unclear/downgraded, <c> bad location. <Any reviewer that returned nothing usable.>
+Raw reports: <N> from 3 reviewers → <a> low dropped → <C> Candidates → <K> confirmed Findings.
+Dropped: <r> refuted, <l> confirmed-but-low, <u> unclear, <c> bad location. <Any reviewer or Verifier that returned nothing usable.>
 ```
 
-Omit the Single-round section when it's empty. Number Findings continuously across both sections.
-Sort by severity, then by votes. If nothing survives, say so plainly and give the Dropped line. That
-outcome is a pass, not a failure. Don't list the dropped findings unless the user asks; keep them in
-your context in case they do.
+Omit the Unverified section when it's empty. Sort Findings by severity, then by the number of Lenses
+that reported them. If nothing survives, say so plainly and give the Raw/Dropped lines. That outcome is
+a pass, not a failure. Don't list the dropped Candidates unless the user asks; keep them and their
+Verifier evidence in your context in case they do.
 
 ## 6. Offer to fix
 
-Ask with AskUserQuestion (multiSelect) which surfaced Findings to fix: offer "all", the critical/high
-ones, or individual Findings by number. Then fix only what was chosen. Behaviour-changing fixes (bugs,
-security) follow the repo's TDD rules: a failing test first, then the fix. Cleanups must keep the
-existing tests green. Run the relevant tests after fixing. **Don't** start a new consensus-review on
-your own fixes. Running the review again is the user's call.
+Ask with AskUserQuestion (multiSelect) which Findings to fix: offer "all", the critical/high ones, or
+individual Findings by number. Then fix only what was chosen. Behaviour-changing fixes (bugs, security)
+follow the repo's TDD rules: a failing test first, then the fix. Cleanups must keep the existing tests
+green. Run the relevant tests after fixing. **Don't** start a new consensus-review on your own fixes.
+Running the review again is the user's call.
