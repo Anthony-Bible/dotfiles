@@ -6,9 +6,11 @@ import json, os, random, subprocess, sys, tempfile, unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "second-opinion.py")
 
-# Answers like `muse exec --json`: one terminal record whose text is an empty Findings list.
+# Answers like `muse exec --json`: one terminal record whose text is the Findings answer in $FAKE_MUSE_ANSWER
+# (a file holding the whole terminal record), or an empty Findings list.
 FAKE_MUSE = """#!/bin/sh
 [ "$1" = "--version" ] && { echo "muse 0.0.0-fake"; exit 0; }
+[ -n "$FAKE_MUSE_ANSWER" ] && { cat "$FAKE_MUSE_ANSWER"; exit 0; }
 echo '{"payload_type": "run.terminal.completed", "payload": {"terminal": "completed", "text": "{\\"findings\\": []}"}}'
 """
 
@@ -111,6 +113,49 @@ class ReviewDiff(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, result)
         with open(os.path.join(result["run"], "turn1.prompt.md"), encoding="utf-8") as f:
             self.assertIn("then ship.", f.read())
+
+    def answer_with(self, findings):
+        path = os.path.join(self.tmp.name, "answer.jsonl")
+        record = {"payload_type": "run.terminal.completed",
+                  "payload": {"terminal": "completed", "text": json.dumps({"findings": findings})}}
+        with open(path, "w") as f:
+            f.write(json.dumps(record) + "\n")
+        self.env["FAKE_MUSE_ANSWER"] = path
+
+    def test_every_non_nit_severity_reaches_the_author_and_only_bugs_and_risks_block(self):
+        severities = ["bug", "risk", "test-gap", "design", "nit", "nit"]
+        self.answer_with([{"file": "main.go", "line": i, "section": None, "severity": sev, "claim": f"claim {i}",
+                           "evidence": "e", "failure_scenario": "f"} for i, sev in enumerate(severities, 1)])
+        self.write("main.go", b"package main\n")
+        code, result = self.review()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["nits_dropped"], 2)
+        self.assertEqual({f["severity"]: f["blocking"] for f in result["findings"]},
+                         {"bug": True, "risk": True, "test-gap": False, "design": False})
+        self.assertEqual([f["id"] for f in result["findings"]], [1, 2, 3, 4])  # ids stay rebuttable
+
+    def test_a_severity_outside_the_schema_blocks_and_a_missing_one_does_not_crash(self):
+        self.answer_with([{"file": "main.go", "line": 1, "section": None, "severity": "critical", "claim": "c",
+                           "evidence": "e", "failure_scenario": "f"},
+                          {"file": "main.go", "line": 2, "section": None, "claim": "no severity",
+                           "evidence": "e", "failure_scenario": "f"}])
+        self.write("main.go", b"package main\n")
+        code, result = self.review()
+        self.assertEqual(code, 0, result)
+        self.assertEqual([f["blocking"] for f in result["findings"]], [True, True])
+
+    def test_the_reviewer_is_told_every_severity_and_the_intent(self):
+        self.write("main.go", b"package main\n")
+        code, result = self.review()
+        self.assertEqual(code, 0, result)
+        prompt = self.prompt(result)
+        self.assertIn("The Author's stated intent: test", prompt)
+        with open(os.path.join(result["run"], "turn1.schema.json")) as f:
+            schema = json.load(f)
+        enum = schema["properties"]["findings"]["items"]["properties"]["severity"]["enum"]
+        for sev in enum:
+            self.assertIn(f'"{sev}"', prompt)
+        self.assertNotIn("An empty list is the right answer", prompt)
 
 
 if __name__ == "__main__":

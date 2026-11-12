@@ -42,10 +42,15 @@ the reason is a missing binary or missing credentials, tell the user which comma
 
 ## 2. Verify every Finding
 
-Nits have already been dropped (`nits_dropped` is the count). For each remaining Finding, read the code it
-names, including callers, guards and tests, and decide whether it is real. A Finding is real when its
-failure scenario can actually happen in this code. Evidence decides this, not how confident the claim
-sounds. Record one line of reasoning for each Finding you reject.
+Nits have already been dropped (`nits_dropped` is the count). Each remaining Finding has a `severity`
+(`bug`, `risk`, `test-gap`, `design`) and `blocking` (false only for test-gap and design). Gate on
+`blocking`, not on the severity name. The Reviewer is told to be
+adversarial, so expect more Findings than a friendly review would give, some of them weak. For each one,
+read the code it names, including callers, guards and tests, and decide whether it is real. A Finding is
+real when its failure scenario can actually happen in this code: for a `test-gap`, when no existing test
+would fail if that behaviour broke; for a `design` Finding, when the future edit it describes is plausible
+and the breakage would go unnoticed. Evidence decides this, not how confident the claim sounds, and not
+your own attachment to the code you wrote. Record one line of reasoning for each Finding you reject.
 
 ## 3. Rebuttal (at most one, only if you rejected something)
 
@@ -72,9 +77,11 @@ Every Finding ends as exactly one of:
 - **Rejected**: you rejected it and the Reviewer conceded or didn't reply.
 
 For a Diff before a commit or PR:
-- **Confirmed** Findings block. Fix them and commit. Don't run a second Review of the fix unless the fix
+- **Confirmed** Findings with `blocking: true` block. Fix them and commit. Don't run a second Review of the fix unless the fix
   is itself 20+ code lines. The user can grant a **Waiver** ("commit anyway"); record it in the commit
   body as `second-opinion waiver: <claim>`.
+- **Confirmed** Findings with `blocking: false` (`test-gap`, `design`) are **Advisory**: they never block. Fix a test-gap when the
+  missing test is small and obvious; otherwise list it and offer to fix it after the commit.
 - **Disputed** Findings never block. Show them.
 
 A Plan Review never blocks. Its Confirmed Findings go into the Plan before anyone builds it.
@@ -85,9 +92,9 @@ Keep it short and in this order:
 
 ```
 second-opinion (<target>, <seconds>s): <c> confirmed, <d> disputed, <r> rejected, <n> nits dropped
-Confirmed:  file:line: claim. (fixed | waived | to fix)
-Disputed:   file:line: claim. Reviewer: <one line>. Author: <one line>.
-Rejected:   file:line: claim. (<one-line reason>)
+Confirmed:  [severity] file:line: claim. (fixed | waived | to fix | advisory)
+Disputed:   [severity] file:line: claim. Reviewer: <one line>. Author: <one line>.
+Rejected:   [severity] file:line: claim. (<one-line reason>)
 ```
 
 When there are no Findings, the report is the header line alone. The run directory (in the output) holds
