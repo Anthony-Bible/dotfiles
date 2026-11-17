@@ -146,18 +146,27 @@ export type Usage = {
   rateLimits: readonly { kind: string; percentUsed: number }[]
 }
 
-/** A rate-limit window is shown from this much used, and only the fullest one. */
+/** The session (5h) and weekly (7d) windows, which the HUD always shows when the account reports them. */
+const ALWAYS_SHOWN = ['five_hour', 'seven_day'] as const
+
+/** Any other rate-limit window (a gateway's spend limit) is shown from this much used. */
 export const RATE_LIMIT_SHOWN_FROM = 50
 
 const WINDOW_NAMES: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
 
-/** The fullest rate-limit window once it reaches RATE_LIMIT_SHOWN_FROM, as the HUD names it. */
-export const hottestLimit = (rateLimits: Usage['rateLimits']): string | undefined => {
-  const hot = rateLimits
-    .filter(l => l.percentUsed >= RATE_LIMIT_SHOWN_FROM)
-    .reduce<Usage['rateLimits'][number] | undefined>((a, l) => (!a || l.percentUsed > a.percentUsed ? l : a), undefined)
-  return hot && `${WINDOW_NAMES[hot.kind] ?? hot.kind} ${Math.round(hot.percentUsed)}%`
-}
+const segment = (l: Usage['rateLimits'][number]): string =>
+  `${WINDOW_NAMES[l.kind] ?? l.kind} ${Math.round(l.percentUsed)}%`
+
+/**
+ * The rate-limit windows as the HUD names them: the session and weekly windows always, in that order, then any other
+ * window once it reaches RATE_LIMIT_SHOWN_FROM.
+ */
+export const limitSegments = (rateLimits: Usage['rateLimits']): string[] => [
+  ...ALWAYS_SHOWN.flatMap(kind => rateLimits.filter(l => l.kind === kind).slice(0, 1).map(segment)),
+  ...rateLimits
+    .filter(l => !(ALWAYS_SHOWN as readonly string[]).includes(l.kind) && l.percentUsed >= RATE_LIMIT_SHOWN_FROM)
+    .map(segment),
+]
 
 export const statusLine = (score: Score, allTime: number, usage?: Usage): string =>
   [
@@ -166,7 +175,7 @@ export const statusLine = (score: Score, allTime: number, usage?: Usage): string
     score.streak > 0 ? `🔥${score.streak}` : undefined,
     score.debuff ? `Debuff: ${score.debuff}` : undefined,
     usage?.contextPercent !== undefined ? `ctx ${Math.round(usage.contextPercent)}%` : undefined,
-    usage ? hottestLimit(usage.rateLimits) : undefined,
+    ...(usage ? limitSegments(usage.rateLimits) : []),
     usage?.usd !== undefined ? `$${usage.usd.toFixed(2)}` : undefined,
   ]
     .filter(Boolean)
