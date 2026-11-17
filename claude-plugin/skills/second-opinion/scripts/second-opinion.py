@@ -43,13 +43,16 @@ NON_CODE_EXT = {".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".yaml", ".yml"
 LOCKFILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "go.sum", "Cargo.lock", "poetry.lock",
              "uv.lock", "flake.lock", "Gemfile.lock", "composer.lock"}
 OMITTED_NOTE = "[not UTF-8, so its content is left out; read the file in your working directory]\n"
+SEVERITIES = ("bug", "risk", "test-gap", "design", "nit")
+ADVISORY = {"test-gap", "design"}  # never block; a nit never reaches the Author; anything else (bug, risk, or a
+                                   # severity outside the schema) blocks, so a surprise label fails closed
 MUSE_FLAGS = ["--json", "--disable-write", "--disable-web-tools", "--no-foreign-personal-context"]
 
 FINDING = {"type": "object", "additionalProperties": False,
            "required": ["file", "line", "section", "severity", "claim", "evidence", "failure_scenario"],
            "properties": {"file": {"type": ["string", "null"]}, "line": {"type": ["integer", "null"]},
                           "section": {"type": ["string", "null"]},
-                          "severity": {"type": "string", "enum": ["bug", "risk", "nit"]},
+                          "severity": {"type": "string", "enum": list(SEVERITIES)},
                           "claim": {"type": "string"}, "evidence": {"type": "string"},
                           "failure_scenario": {"type": "string"}}}
 FINDINGS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["findings"],
@@ -66,12 +69,24 @@ ROLE = ("You are the Reviewer: an independent second opinion on work another AI 
         "produced. Your working directory is a disposable snapshot of the repository; anything you change there is "
         "thrown away, so do not edit files. Read the surrounding code, callers and tests, and run read-only commands "
         "or the test suite when that settles a question. This is an unattended run: nobody will answer questions.\n\n")
-RULES = ("Report Findings only for things that are wrong: severity \"bug\" when some input or state produces "
-         "incorrect behaviour, \"risk\" for security holes, data loss, races or broken contracts, \"nit\" for style, "
-         "naming, formatting and taste. Every Finding needs a one-sentence claim, the evidence (quoted code or the "
-         "reasoning that shows it) and a concrete failure scenario. Check each claim against the code before you "
-         "report it; a guard or caller you did not read is not evidence. An empty list is the right answer when "
-         "nothing is wrong.\n\n")
+RULES = ("Be adversarial. The Author is confident in this work and already believes it is correct, so a review that "
+         "agrees with it adds nothing. Assume there is at least one defect and go looking for it: trace every changed "
+         "path with hostile inputs (empty, missing, huge, malformed, duplicated, non-ASCII, concurrent or repeated "
+         "calls), follow every error and early-return path to see what state it leaves behind, read each caller of a "
+         "changed function to see whether its contract still holds, and check that the change does what the stated "
+         "intent says, all of it and nothing else. Run the tests when that settles a question.\n\n"
+         "Severity: \"bug\" when some input or state produces incorrect behaviour, or the change does not do what the "
+         "intent says; \"risk\" for security holes, data loss, races, resource leaks or broken contracts with callers; "
+         "\"test-gap\" when changed behaviour (a branch, an error path, an edge case you identified) has no test that "
+         "would fail if it broke, or a test asserts the implementation instead of the contract; \"design\" when the "
+         "change is correct today but is built so the next change will likely break it (duplicated logic that must "
+         "stay in sync, a leaky or misleading abstraction, hidden coupling, a name that says something the code does "
+         "not do); \"nit\" for formatting and taste. Do not downgrade a bug to a risk or a risk to a nit to be polite.\n\n"
+         "Every Finding needs a one-sentence claim, the evidence (quoted code or the reasoning that shows it) and a "
+         "concrete failure scenario: the input, state or future edit, and what goes wrong. Check each claim against "
+         "the code before you report it; a guard or caller you did not read is not evidence, and the Author will "
+         "verify every Finding and argue back against weak ones. Return an empty list only after you have tried to "
+         "break every changed path and failed.\n\n")
 
 
 def out(obj, code=EXIT_OK):
@@ -270,7 +285,9 @@ def cmd_review(a):
         plan = open(a.plan, encoding="utf-8", errors="replace").read()
         prompt = (ROLE + "The Review Target is a Plan the Author wrote before writing any code. Find the gaps, wrong "
                   "assumptions about the existing code, missed edge cases and steps that would not work as written. "
-                  "Check every assumption about the codebase against the repository.\n\n" + intent + RULES +
+                  "Check every assumption about the codebase against the repository. Here a \"changed path\" is each step of "
+                  "the Plan, and \"test-gap\" means behaviour the Plan adds or changes without planning an automated test "
+                  "that would fail if it broke (a manual check does not count).\n\n" + intent + RULES +
                   "Set section to the Plan heading the Finding is about. Set file and line when the Finding rests on "
                   "specific code in the repository, otherwise null. The failure scenario is what goes wrong if the "
                   "Plan is built as written.\n\nThe Plan:\n\n" + capped(plan, "Plan") + "\n")
@@ -284,8 +301,9 @@ def cmd_review(a):
     meta["findings"] = findings
     json.dump(meta, open(os.path.join(run, "run.json"), "w"), indent=2)
     out({"status": "ok", "run": run, "target": a.target, "snapshot": snap, "base": base, **stats,
-         "findings": [f for f in findings if f["severity"] != "nit"],
-         "nits_dropped": sum(f["severity"] == "nit" for f in findings),
+         "findings": [dict(f, blocking=f.get("severity") not in ADVISORY) for f in findings
+                      if f.get("severity") != "nit"],
+         "nits_dropped": sum(f.get("severity") == "nit" for f in findings),
          "seconds": round(time.time() - meta["started"]), **({"warnings": meta["warnings"]} if "warnings" in meta
                                                               else {})})
 

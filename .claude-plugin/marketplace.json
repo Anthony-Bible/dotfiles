@@ -13,7 +13,7 @@
       "name": "dotfiles-dev-tools",
       "source": "./claude-plugin",
       "description": "Development formatting hooks (Go, Shell, Proto, OpenAPI), TDD agents, grill-with-docs, pi-implementer (a local model implements Tickets through pi + pi-vcc under Claude Code's supervision), and second-opinion (Muse Code reviews Diffs and Plans read-only; Claude verifies and rebuts), consensus-review (security, cleanup and bug reviewers, then a blind Verifier per Finding; only medium+ Findings the Verifier confirms reach you), plus mods: Crawler Points HUD, Dispatch Board, Podman Guard, Branch Guard, TDD Band, Floor Boss, Sponsor Mail (PR watch), Beast Watch (GPU box health + Beast Guard) and the System's voice (its Cues are heard by dungeon-buddy)",
-      "version": "0.12.0",
+      "version": "0.13.0",
       "author": {
         "name": "Anthony Bible"
       },

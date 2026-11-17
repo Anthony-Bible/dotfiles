@@ -37,9 +37,17 @@ _Avoid_: spec, proposal
 One claim by the Reviewer that something in the Review Target is wrong, with evidence and a failure scenario.
 _Avoid_: issue, comment, bug report
 
+**Severity**:
+The Reviewer's label on a Finding: `bug` (wrong behaviour, or the change misses its intent), `risk` (security, data loss, races, broken contracts), `test-gap` (changed behaviour no test would catch breaking), `design` (correct today, built so the next change likely breaks it) or `nit`.
+_Avoid_: priority, level
+
 **Nit**:
-A Finding about style or taste rather than correctness; dropped before reconciliation.
+A Finding about formatting or taste; dropped before reconciliation.
 _Avoid_: suggestion, minor
+
+**Advisory**:
+A Confirmed `test-gap` or `design` Finding: reported, and never blocks a commit.
+_Avoid_: soft finding, warning
 
 ### Reconciliation
 
@@ -68,7 +76,7 @@ _Avoid_: override, skip
 - A **Review** covers exactly one **Review Target** and produces zero or more **Findings**
 - Every **Finding** that is not a **Nit** ends as exactly one of **Confirmed**, **Disputed** or **Rejected**
 - A **Review** contains at most one **Rebuttal**, covering every Finding the **Author** rejected
-- A **Confirmed** Finding on a **Diff** blocks the commit until it is fixed or given a **Waiver**; a **Disputed** one never blocks
+- A **Confirmed** `bug` or `risk` Finding on a **Diff** blocks the commit until it is fixed or given a **Waiver**; an **Advisory** or **Disputed** one never blocks
 
 ## Example dialogue
 
