@@ -36,7 +36,7 @@ The run of consecutive green Checks.
 _Avoid_: combo, chain
 
 **HUD**:
-The status line showing Crawler Points, level, Streak, Debuff and the session's usage.
+The status line showing Crawler Points, level, Streak, Debuff and the session's usage: context, the session (5h) and weekly (7d) rate-limit windows, and cost.
 _Avoid_: status bar, footer
 
 **Verdict**:

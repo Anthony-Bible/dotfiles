@@ -6,8 +6,8 @@ import {
   classify,
   cleanQuip,
   compactAward,
-  hottestLimit,
   level,
+  limitSegments,
   RATE_LIMIT_SHOWN_FROM,
   RETREAT_BELOW,
   statusLine,
@@ -185,18 +185,34 @@ describe('cleanQuip', () => {
 describe('the HUD shows usage', () => {
   const KINDS = ['five_hour', 'seven_day', 'spend_limit']
 
-  test('only the fullest rate-limit window shows, and only from RATE_LIMIT_SHOWN_FROM', () => {
+  test('the session (5h) and weekly (7d) windows always show, in that order, whatever their fill', () => {
     const r = rng(7)
     for (let i = 0; i < RUNS; i++) {
-      const limits = KINDS.filter(() => r() < 0.7).map(kind => ({ kind, percentUsed: Math.round(r() * 1000) / 10 }))
-      const shown = hottestLimit(limits)
-      const max = Math.max(-1, ...limits.map(l => l.percentUsed))
-      if (max < RATE_LIMIT_SHOWN_FROM) expect(shown).toBeUndefined()
-      else expect(shown?.endsWith(`${Math.round(max)}%`)).toBe(true)
+      const limits = KINDS.filter(() => r() < 0.7)
+        .map(kind => ({ kind, percentUsed: Math.round(r() * 1000) / 10 }))
+        .sort(() => r() - 0.5)
+      const shown = limitSegments(limits)
+      const pct = (kind: string) => limits.find(l => l.kind === kind)?.percentUsed
+      const expected = [
+        pct('five_hour') !== undefined ? `5h ${Math.round(pct('five_hour')!)}%` : undefined,
+        pct('seven_day') !== undefined ? `7d ${Math.round(pct('seven_day')!)}%` : undefined,
+      ].filter(Boolean)
+      expect(shown.slice(0, expected.length)).toEqual(expected)
     }
   })
 
-  test('context, the hottest window and cost follow the score, each only when known', () => {
+  test('any other window shows only from RATE_LIMIT_SHOWN_FROM, after the session and weekly ones', () => {
+    const r = rng(9)
+    for (let i = 0; i < RUNS; i++) {
+      const percentUsed = Math.round(r() * 1200) / 10
+      const shown = limitSegments([{ kind: 'spend_limit', percentUsed }, { kind: 'five_hour', percentUsed: 3 }])
+      expect(shown[0]).toBe('5h 3%')
+      if (percentUsed < RATE_LIMIT_SHOWN_FROM) expect(shown).toEqual(['5h 3%'])
+      else expect(shown).toEqual(['5h 3%', `spend ${Math.round(percentUsed)}%`])
+    }
+  })
+
+  test('context, the usage windows and cost follow the score, each only when known', () => {
     const score = { session: 40, streak: 0 }
     expect(statusLine(score, 0, { rateLimits: [] })).toBe('🎟 40 CP (0 total) · Lv 1')
     expect(
@@ -205,10 +221,10 @@ describe('the HUD shows usage', () => {
         usd: 4.123,
         rateLimits: [
           { kind: 'five_hour', percentUsed: 71 },
-          { kind: 'seven_day', percentUsed: 55 },
+          { kind: 'seven_day', percentUsed: 12 },
         ],
       }),
-    ).toBe('🎟 40 CP (0 total) · Lv 1 · ctx 62% · 5h 71% · $4.12')
+    ).toBe('🎟 40 CP (0 total) · Lv 1 · ctx 62% · 5h 71% · 7d 12% · $4.12')
   })
 })
 
