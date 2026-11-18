@@ -11,6 +11,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import {
   accountOf,
   BUBBLE_MS,
+  BUBBLE_WIDTH,
   BUDDY_SYSTEM,
   bubblePrompt,
   cannedBubble,
@@ -362,8 +363,8 @@ export const register: Register = on => {
         </Box>
       ) : hatch && b.bubble ? (
         <Box key="buddy" justifyContent="flex-end" alignItems="center" gap={1}>
-          <Box borderStyle="round" paddingX={1}>
-            <Text wrap="truncate-end">{b.bubble}</Text>
+          <Box borderStyle="round" paddingX={1} width={Math.min(b.bubble.length + 4, BUBBLE_WIDTH)} flexShrink={1}>
+            <Text wrap="wrap">{b.bubble}</Text>
           </Box>
           {sprite(spriteOf(hatch), tint)}
         </Box>

@@ -318,13 +318,15 @@ export const willSpeak = (h: Hatch, m: Moment, now: number, lastAt: number, r: n
 
 // ------------------------------------------------------------------------------------------ the words
 
-export const BUBBLE_MAX = 60
+export const BUBBLE_MAX = 120
+/** The bubble's widest, border and padding included: a longer Bubble wraps onto more rows instead. */
+export const BUBBLE_WIDTH = 44
 
 export const BUDDY_SYSTEM = [
   "You are the Crawler's dungeon pet in a game show where a sardonic host called the System narrates a programmer",
   '(the Crawler) at work. You sit beside their prompt and talk back to the System. You side with the Crawler and',
   'mock the System, unless your SNARK is high, then you mock everyone. Speak in character for your species and',
-  `personality. One line, at most ${BUBBLE_MAX} characters, no quotes, no hashtags, no emoji except at most one.`,
+  `personality. One or two short sentences, at most ${BUBBLE_MAX} characters, no quotes, no hashtags, no emoji except at most one.`,
 ].join(' ')
 
 export const SOUL_SYSTEM = [
@@ -423,14 +425,22 @@ const what = (m: Moment): string => {
 export const bubblePrompt = (h: Hatch, soul: Pick<Soul, 'name' | 'personality'>, m: Moment): string =>
   `You are ${soul.name}, a ${profile(h)}. Personality: ${soul.personality}\nWhat happened: ${what(m)}`
 
-/** The model's Bubble cut to one line of at most BUBBLE_MAX; undefined when it wrote nothing. */
+/**
+ * The model's Bubble as one line of at most BUBBLE_MAX; undefined when it wrote nothing. One that runs long
+ * keeps its whole sentences when any fit, else is cut at the last word that fits.
+ */
 export const cleanBubble = (text: string): string | undefined => {
   const line = text
     .split('\n')
     .map(l => l.trim().replace(/^["'“]|["'”]$/g, ''))
     .find(Boolean)
   if (!line) return undefined
-  return line.length > BUBBLE_MAX ? `${line.slice(0, BUBBLE_MAX - 1)}…` : line
+  if (line.length <= BUBBLE_MAX) return line
+  const room = line.slice(0, BUBBLE_MAX)
+  const sentences = room.match(/^.*[.!?](?=\s)/)?.[0]
+  if (sentences) return sentences
+  const space = line.lastIndexOf(' ', BUBBLE_MAX - 1)
+  return `${space > 0 ? line.slice(0, space) : line.slice(0, BUBBLE_MAX - 1)}…`
 }
 
 const CANNED: Record<Moment['kind'], readonly string[]> = {
