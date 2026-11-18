@@ -22,7 +22,7 @@ const watch = (on: On) => {
 }
 
 // The login's email line, and the model naming the Buddy or speaking for it.
-const world = (on: On, hasLogin = true) => {
+const world = (on: On, hasLogin = true, said = 'Boo, System!') => {
   on('process.run', async (_$, e) => ({
     value: {
       exitCode: 0,
@@ -35,7 +35,7 @@ const world = (on: On, hasLogin = true) => {
   on('model.complete', async (_$, e) => ({
     value: {
       isAnswered: true,
-      text: e.system?.includes('You name') ? 'Sir Test\nA very testy pet.' : 'Boo, System!',
+      text: e.system?.includes('You name') ? 'Sir Test\nA very testy pet.' : said,
       usage: { input_tokens: 1, output_tokens: 1 },
     } as never,
   }))
@@ -112,6 +112,22 @@ describe('the Buddy', () => {
 
     await $.command.run(buddy('hide'))
     expect(await shows($, /Sir Test/)).toBe(false)
+  })
+
+  test('a long Bubble is shown whole, wrapped in a bubble of bounded width', async ($, on) => {
+    const clock = mock.clock(on)
+    watch(on)
+    const said = 'Chaos Whiskers Jr. gnaws the wire. One commit? Learning experience incoming, brace yourself.'
+    world(on, true, said)
+    await $.session.start(START)
+    await $.command.run(buddy())
+    await clock.advance(3000)
+    const ui = await $.ui.mount({ plugin: 'dungeon-buddy', surface: 'terminal', ...BAND })
+    const text = await ui.find({ type: 'Text', text: said })
+    const box = (await ui.findAll({ type: 'Box' })).find(b => b.props.borderStyle === 'round')
+    await ui.unmount()
+    expect(text?.props.wrap).toBe('wrap')
+    expect(box?.props.width).toBeLessThanOrEqual(44)
   })
 
   test("it sits under what the plugins beneath draw in the band, never hiding it", async ($, on) => {

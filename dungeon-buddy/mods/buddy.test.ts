@@ -143,6 +143,32 @@ describe('Bubbles', () => {
     }
   })
 
+  test('a cleaned Bubble that runs long is cut at a word, never inside one', () => {
+    const r = rng(11)
+    const words = ['gnaw', 'the', 'wire', 'Crawler', 'commit', 'learning', 'experience', 'System']
+    for (let i = 0; i < RUNS; i++) {
+      const line = Array.from({ length: 5 + Math.floor(r() * 40) }, () => words[Math.floor(r() * words.length)]).join(' ')
+      const b = cleanBubble(line)!
+      expect(b.length).toBeLessThanOrEqual(BUBBLE_MAX)
+      if (b === line) continue
+      expect(b.endsWith('…')).toBe(true)
+      const kept = b.slice(0, -1)
+      expect(line.startsWith(kept)).toBe(true)
+      expect(line[kept.length]).toBe(' ')
+    }
+  })
+
+  test('a long Bubble keeps its whole sentences when one ends in reach', () => {
+    const first = 'Chaos Whiskers Jr. gnaws the wire.'
+    const b = cleanBubble(`${first} ${'Then it keeps going and going'.repeat(10)}`)
+    expect(b).toBe(first)
+  })
+
+  test('a Bubble the model wrote at a sensible length comes through whole', () => {
+    const said = 'Chaos Whiskers Jr. gnaws the wire. One commit? Learning experience incoming, brace yourself.'
+    expect(cleanBubble(said)).toBe(said)
+  })
+
   test('every canned Bubble fits the bubble', () => {
     const kinds: Moment[] = [
       { kind: 'hatched' },
