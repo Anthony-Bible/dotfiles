@@ -158,16 +158,32 @@ def is_code(path):
     return name not in LOCKFILES and os.path.splitext(name)[1].lower() not in NON_CODE_EXT
 
 
+def numstat_records(base, snap):
+    """(added, deleted, path) per changed file, from `git diff --numstat -z`. A rename or copy is listed as
+    `added\\tdeleted\\t\\0src\\0dst\\0` (the plain form prints `dir/{a => b}`, which is no path), and its path is
+    the destination: that is what is_code must judge. Same order as the file sections of `git diff`."""
+    fields = subprocess.run(["git", "diff", "--numstat", "-z", base, snap], capture_output=True,
+                            check=True).stdout.split(b"\0")
+    records, i = [], 0
+    while i < len(fields) and fields[i]:
+        added, deleted, path = fields[i].decode("utf-8", "replace").split("\t", 2)
+        i += 1
+        if path == "":
+            path = fields[i + 1].decode("utf-8", "replace")
+            i += 2
+        records.append((added, deleted, path))
+    return records
+
+
 def diff_stats(base, snap):
     """The stats and the Diff text. A file whose part of the Diff is not UTF-8 is binary that git took for text
     (no NUL byte, e.g. a raw audio fixture): the Diff keeps its header line only, and it counts as no code."""
-    numstat = git("diff", "--numstat", base, snap).splitlines()
+    numstat = numstat_records(base, snap)
     raw = subprocess.run(["git", "diff", base, snap], capture_output=True, check=True).stdout
     parts = [p for p in re.split(rb"(?m)^(?=diff --git )", raw) if p]
     paired = len(parts) == len(numstat)  # git lists the files in the same order in both
     files, code_files, code_lines, omitted, kept = [], [], 0, [], []
-    for i, line in enumerate(numstat):
-        added, deleted, path = line.split("\t", 2)
+    for i, (added, deleted, path) in enumerate(numstat):
         files.append(path)
         try:
             kept.append(parts[i].decode("utf-8") if paired else "")

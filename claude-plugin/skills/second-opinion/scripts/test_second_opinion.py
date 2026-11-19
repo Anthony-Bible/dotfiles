@@ -116,6 +116,71 @@ class ReviewDiff(unittest.TestCase):
                                   capture_output=True, text=True, check=True).stdout.strip()
         self.assertIn("```diff\n" + expected + "\n```", self.prompt(result))
 
+    def commit_bodies(self, names, lines=60):
+        for name in names:
+            os.makedirs(os.path.dirname(os.path.join(self.repo, name)) or self.repo, exist_ok=True)
+            self.write(name, b"".join(b"%s line %d\n" % (name.encode(), n) for n in range(lines)))
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base")
+
+    def rename_and_edit(self, src, dst):
+        os.makedirs(os.path.dirname(os.path.join(self.repo, dst)) or self.repo, exist_ok=True)
+        self.git("mv", src, dst)
+        with open(os.path.join(self.repo, dst), "ab") as f:
+            f.write(b"added one\nadded two\n")
+
+    def test_a_renamed_and_edited_doc_counts_no_code_lines(self):
+        self.commit_bodies(["docs/a.md"])
+        self.rename_and_edit("docs/a.md", "docs/b.md")
+        self.write("main.go", b"package main\n")
+        code, result = self.review("--auto")
+        self.assertEqual(result["code_lines"], 1, result)
+        self.assertEqual(result["code_files"], ["main.go"])
+
+    def test_a_renamed_and_edited_code_file_still_counts_its_changed_lines(self):
+        self.commit_bodies(["pkg/a.go"])
+        self.rename_and_edit("pkg/a.go", "pkg/b.go")
+        code, result = self.review()
+        self.assertEqual(result["code_lines"], 2, result)
+        self.assertEqual(result["code_files"], ["pkg/b.go"])
+
+    def test_a_rename_across_kinds_is_judged_by_its_destination(self):
+        self.commit_bodies(["a.go", "b.md"])
+        self.rename_and_edit("a.go", "a.md")  # code -> doc: no code
+        self.rename_and_edit("b.md", "b.go")  # doc -> code: counts
+        code, result = self.review()
+        self.assertEqual(result["code_files"], ["b.go"])
+        self.assertEqual(result["code_lines"], 2, result)
+
+    def test_paths_with_spaces_and_arrows_are_judged_by_their_extension(self):
+        names = ["my docs/a => b.md", "my docs/x {y => z}.go", "tab\there.md"]
+        self.commit_bodies(names)
+        self.rename_and_edit("my docs/a => b.md", "my docs/c => d.md")
+        self.rename_and_edit("my docs/x {y => z}.go", "my docs/p {q => r}.go")
+        code, result = self.review()
+        self.assertEqual(result["code_files"], ["my docs/p {q => r}.go"])
+        self.assertEqual(result["code_lines"], 2, result)
+
+    def test_code_lines_equal_the_sum_over_code_destinations(self):
+        rng = random.Random(39)
+        exts = [".go", ".py", ".sh", ".md", ".txt", ".json", ".yaml"]
+        for trial in range(6):
+            with self.subTest(trial=trial):
+                self.setUp()
+                try:
+                    stems = rng.sample(["a", "b c", "d => e", "{f}", "g-h", "i_j", "k"], 4)
+                    pairs = [(f"d/{s}{rng.choice(exts)}", f"d/{s}2{rng.choice(exts)}") for s in stems]
+                    self.commit_bodies([src for src, _ in pairs])
+                    expected = 0
+                    for src, dst in pairs:
+                        self.rename_and_edit(src, dst)
+                        if os.path.splitext(dst)[1] not in (".md", ".txt", ".json", ".yaml"):
+                            expected += 2
+                    code, result = self.review()
+                    self.assertEqual(result["code_lines"], expected, (pairs, result))
+                finally:
+                    self.tearDown()
+
     def test_non_utf8_lines_do_not_count_toward_the_auto_threshold(self):
         self.write_fixtures(20)  # hundreds of "lines" between them
         self.write("main.go", b"package main\n")
