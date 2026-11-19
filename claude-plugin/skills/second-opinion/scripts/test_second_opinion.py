@@ -403,6 +403,54 @@ class Gate(Repo):
         self.assertLess(time.monotonic() - started, 3.0)
         self.assertEqual((result["required"], result["code_lines"]), (True, 25), result)
 
+    def test_a_rename_chain_cannot_hide_an_edit_to_the_middle_path(self):
+        self.commit(30, "a.go")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "feat")
+        self.git("checkout", "-q", "feat")
+        a = [n for n in os.listdir(self.repo) if n.endswith("a.go")][0]
+        before = self.tree()
+        self.git("mv", a, "b.go")
+        self.git("commit", "-q", "-m", "rename")
+        self.ledger(before, self.tree())
+        with open(os.path.join(self.repo, "b.go"), "a") as f:
+            f.write("".join(f"edit {i}\n" for i in range(30)))
+        self.git("commit", "-qam", "unreviewed edit")
+        before = self.tree()
+        self.git("mv", "b.go", "c.go")
+        self.git("commit", "-q", "-m", "rename again")
+        self.ledger(before, self.tree())
+        result = self.gate()
+        self.assertTrue(result["required"], result)
+
+    def test_untracked_scratch_never_committed_still_covers(self):
+        t = self.commit(30)
+        self.ledger(*t)
+        with open(os.path.join(self.repo, "scratch.go"), "w") as f:
+            f.write("".join(f"s {i}\n" for i in range(40)))
+        self.assertFalse(self.gate()["required"])
+
+    def test_head_names_the_branch_to_judge_from_another_checkout(self):
+        self.commit(30)
+        self.git("checkout", "-q", "main")
+        self.assertFalse(self.gate()["required"])  # main itself has no Diff
+        result = self.gate("--head", "feat")
+        self.assertTrue(result["required"], result)
+        self.assertEqual(result["head"], "feat")
+
+    def test_head_falls_back_to_the_remote_ref(self):
+        self.commit(30)
+        self.git("update-ref", "refs/remotes/origin/only", "feat")
+        self.git("checkout", "-q", "main")
+        self.assertTrue(self.gate("--head", "only")["required"])
+
+    def test_an_owner_qualified_or_unknown_head_fails_open_with_a_reason(self):
+        self.commit(30)
+        for ref in ("owner:feat", "nope", "--weird"):
+            result = self.gate(f"--head={ref}")
+            self.assertFalse(result["required"], ref)
+            self.assertIn("head", result["reason"], ref)
+
     def test_a_reviewed_tree_stays_covered_after_an_abandoned_follow_up_review(self):
         t1 = self.commit(30)
         self.ledger(*t1)

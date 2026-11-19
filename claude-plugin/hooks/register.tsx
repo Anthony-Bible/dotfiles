@@ -896,8 +896,17 @@ export const register: Register = on => {
     const deadline = (await $.clock.now()) + 15000
     const asked = new Set<string>()
     checks: for (const check of reviewChecks(e.command)) {
+      if (check.movesHead) {
+        // The gate reads the repository as it is now, before this line runs: a commit or checkout earlier on the
+        // line would make its verdict about the wrong tree.
+        reasons.push(
+          'An earlier command on this line (git commit, merge, rebase, checkout, ...) moves HEAD, so the PR Gate cannot judge what gh pr create will open. ' +
+            'Run the commit (or checkout) in its own Bash call, then gh pr create.',
+        )
+        continue
+      }
       for (const dir of check.dirs) {
-        const key = JSON.stringify([check.base, dir])
+        const key = JSON.stringify([check.base, check.head, dir])
         if (asked.has(key)) continue
         asked.add(key)
         try {
@@ -909,7 +918,7 @@ export const register: Register = on => {
           if (cwd === null) continue // another user's home is not ours to guess
           const left = deadline - (await $.clock.now())
           if (left <= 0) break checks
-          const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {
+          const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : []), ...(check.head ? ['--head', check.head] : [])], {
             ...(cwd ? { cwd } : {}),
             timeoutMs: left,
           })

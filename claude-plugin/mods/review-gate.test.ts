@@ -114,6 +114,30 @@ describe('which lines the PR Gate looks at', () => {
     expect(expandHome('~+', '/h')).toBeNull()
   })
 
+  test('--head / -H is carried through, the last one winning, in every spelling', () => {
+    const head = (line: string) => reviewChecks(line)[0]?.head
+    expect(head('gh pr create --head feat/x --base main')).toBe('feat/x')
+    expect(head('gh pr create -H feat/x')).toBe('feat/x')
+    expect(head('gh pr create -Hfeat/x')).toBe('feat/x')
+    expect(head('gh pr create -H=feat/x')).toBe('feat/x')
+    expect(head('gh pr create --head=feat/x')).toBe('feat/x')
+    expect(head('gh pr create -H a --head "b"')).toBe('b')
+    expect(head('gh pr create --title "--head=x"')).toBeUndefined()
+    expect(head('gh pr create --fill')).toBeUndefined()
+    expect(reviewChecks('gh pr create -H a')[0]).toEqual({ kind: 'check', head: 'a', dirs: [undefined] })
+  })
+
+  test('a command before gh pr create that can move HEAD marks the check, and only such a command does', () => {
+    for (const mover of ['git commit -m w', 'git commit -am w', 'git -C ../x commit -m w', 'git -c a=b merge main', 'git rebase main', 'git cherry-pick abc',
+      'git revert HEAD', 'git am p.patch', 'git pull', 'git reset --hard x', 'git checkout feat', 'git switch feat', 'git stash pop', 'git stash apply',
+      'sudo git commit -m w', 'git add x && git commit -m w && git push'])
+      expect(reviewChecks(`${mover} && gh pr create --fill`)[0]?.movesHead, mover).toBe(true)
+    for (const calm of ['git push', 'git status', 'git add x', 'git stash', 'git stash list', 'git log', 'echo "git commit"', 'git fetch'])
+      expect(reviewChecks(`${calm}; gh pr create --fill`)[0]?.movesHead, calm).toBeUndefined()
+    expect(reviewChecks('gh pr create --fill; git commit -m w')[0]?.movesHead).toBeUndefined()
+    expect(reviewChecks(`git commit -m w && ${REVIEW_HATCH} gh pr create`)).toEqual([])
+  })
+
   test('help among create\'s own args is no creation, but a flag\'s value that looks like help is', () => {
     for (const line of ['gh pr create --help', 'gh pr create -h', 'gh pr create --fill -h', 'gh pr new --help --fill', 'gh -R o/r pr create -h'])
       expect(reviewChecks(line)).toEqual([])
@@ -198,13 +222,15 @@ describe('what the gate verdict does', () => {
       expect(j.kind).toBe('deny')
       if (j.kind === 'deny') {
         expect(j.reason).toContain(`This PR's Diff has ${n} changed code lines`)
-        expect(j.reason).toContain('review diff --auto --base develop --intent')
+        expect(j.reason).toContain('review diff --auto --base origin/main --intent')
         expect(j.reason).toContain(REVIEW_HATCH)
       }
     }
   })
 
   test('without a base on the line, the message names the gate\'s own, or a placeholder', () => {
+    const unresolved = reviewVerdict(said({ required: true, code_lines: 30 }), 'develop')
+    expect(unresolved.kind === 'deny' && unresolved.reason).toContain('--base develop')
     const named = reviewVerdict(said({ required: true, code_lines: 30, base: 'origin/main' }))
     expect(named.kind === 'deny' && named.reason).toContain('--base origin/main')
     const bare = reviewVerdict(said({ required: true, code_lines: 30 }))
@@ -284,6 +310,22 @@ describe('the PR Gate hook', () => {
     const denied = await $.tool.call({ tool: 'Bash', command: 'gh pr create -B main --fill; gh pr create -B develop --fill' })
     expect(denied.deny).toContain("This PR's Diff has 50 changed code lines")
     expect(asked.map(a => a.argv.at(-1))).toEqual(['main', 'develop'])
+  })
+
+  test('a commit before gh pr create on the same line is refused without asking the gate; a push or a status is not', async ($, on) => {
+    const { asked, ran } = setup($, on, () => GATE({ required: false, code_lines: 0 }))
+    const denied = await $.tool.call({ tool: 'Bash', command: 'git add x && git commit -m w && git push && gh pr create --fill' })
+    expect(denied.deny).toContain('in its own Bash call')
+    expect(asked).toEqual([])
+    for (const command of ['git push && gh pr create --fill', 'git status; gh pr create --fill']) expect((await $.tool.call({ tool: 'Bash', command })).deny).toBeUndefined()
+    expect((await $.tool.call({ tool: 'Bash', command: `git commit -m w && ${REVIEW_HATCH} gh pr create` })).deny).toBeUndefined()
+    expect(ran).toHaveLength(2 + 1)
+  })
+
+  test('--head is passed to the gate after --base', async ($, on) => {
+    const { asked } = setup($, on, () => GATE({ required: false, code_lines: 0 }))
+    await $.tool.call({ tool: 'Bash', command: 'gh pr create --head feat/x --base main' })
+    expect(asked[0]?.argv.slice(-5)).toEqual(['gate', '--base', 'main', '--head', 'feat/x'])
   })
 
   test('the Hatch never asks the gate, even when it would refuse', async ($, on) => {

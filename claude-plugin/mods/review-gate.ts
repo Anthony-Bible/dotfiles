@@ -14,29 +14,63 @@ export const REVIEW_HATCH = 'REVIEW_OK=1'
  * What to ask the gate about: the PR's base branch if the line names one, and every directory it may run in
  * (undefined is where the line starts). A directory the shell computes is not listed: the gate has no say there.
  */
-export type GateCheck = { kind: 'check'; base?: string; dirs: (string | undefined)[] }
+export type GateCheck = {
+  kind: 'check'
+  base?: string
+  /** The PR's head branch (`-H` / `--head`) when the line names one; the gate then judges that ref, not HEAD. */
+  head?: string
+  /** An earlier command on the line can move HEAD or the branch, so the gate would judge the wrong tree. */
+  movesHead?: true
+  dirs: (string | undefined)[]
+}
 
 const unquoted = (line: string, w: Word): string => line.slice(w.start, w.end).replace(/["']/g, '')
 
 /**
- * The branch named by `-B` / `--base`, however it is attached (`-B main`, `-Bmain`, `-B=main`, `--base=main`).
- * The last one wins; the values of other flags (`--title "--base=x"`) and anything after `--` are not flags.
+ * The value of a flag in every spelling (`-B main`, `-Bmain`, `-B=main`, `--base=main`). The last one wins; the
+ * values of other flags (`--title "--base=x"`) and anything after `--` are not flags.
  */
-const baseOf = (line: string, nth = 0): string | undefined => {
+const flagValue = (line: string, nth: number, short: string, long: string): string | undefined => {
   const rest = prCreates(line)[nth]?.rest ?? []
-  let base: string | undefined
+  let value: string | undefined
   for (let i = 0; i < rest.length; i++) {
     const t = unquoted(line, rest[i] as Word)
     if (t === '--') break
-    if (t === '-B' || t === '--base') {
+    if (t === short || t === long) {
       const next = rest[i + 1]
-      if (next) base = unquoted(line, next)
+      if (next) value = unquoted(line, next)
       i++
-    } else if (t.startsWith('--base=')) base = t.slice(7)
-    else if (t.startsWith('-B') && !t.startsWith('--')) base = t.slice(2).replace(/^=/, '')
+    } else if (t.startsWith(`${long}=`)) value = t.slice(long.length + 1)
+    else if (t.startsWith(short) && !t.startsWith('--')) value = t.slice(short.length).replace(/^=/, '')
     else if (CREATE_VALUE_FLAGS.has(t)) i++
   }
-  return base || undefined
+  return value || undefined
+}
+
+const baseOf = (line: string, nth = 0): string | undefined => flagValue(line, nth, '-B', '--base')
+const headOf = (line: string, nth = 0): string | undefined => flagValue(line, nth, '-H', '--head')
+
+/** Git subcommands that move HEAD or the checked-out branch. */
+const HEAD_MOVERS = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull', 'reset', 'checkout', 'switch'])
+const GIT_VALUE_FLAGS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
+
+/** Whether a git command before word `at` can move HEAD (the hook runs before the line, so the gate would see the old one). */
+const movesHead = (line: string, ws: readonly Word[], at: number): boolean => {
+  for (let i = 0; i < at; i++) {
+    const w = ws[i] as Word
+    if (!w.isCommand || unquoted(line, w).replace(/^.*\//, '') !== 'git') continue
+    let j = i + 1
+    const arg = (k: number): string | undefined => {
+      const a = ws[k]
+      return a && !a.startsCommand ? unquoted(line, a) : undefined
+    }
+    for (let t = arg(j); t !== undefined && t.startsWith('-'); t = arg(j)) j += GIT_VALUE_FLAGS.has(t) ? 2 : 1
+    const sub = arg(j)
+    if (sub === undefined) continue
+    if (HEAD_MOVERS.has(sub)) return true
+    if (sub === 'stash' && ['pop', 'apply'].includes(arg(j + 1) ?? '')) return true
+  }
+  return false
 }
 
 /**
@@ -75,6 +109,8 @@ export const reviewChecks = (line: string): GateCheck[] => {
           {
             kind: 'check' as const,
             base: baseOf(line, nth),
+            ...(headOf(line, nth) ? { head: headOf(line, nth) } : {}),
+            ...(movesHead(line, ws, at) ? { movesHead: true as const } : {}),
             dirs: createDirsOf(line, nth).filter((d): d is string | undefined => d !== null),
           },
         ],
@@ -105,7 +141,7 @@ export const reviewVerdict = (run: { exitCode: number; stdout: string }, base?: 
     kind: 'deny',
     reason:
       `This PR's Diff has ${g.codeLines} changed code lines that no second-opinion Review covers. ` +
-      `Run the second-opinion skill (\`review diff --auto --base ${base ?? g.base ?? '<PR base branch>'} --intent …\`) first. ` +
+      `Run the second-opinion skill (\`review diff --auto --base ${g.base ?? base ?? '<PR base branch>'} --intent …\`) first. ` +
       `${REVIEW_HATCH} bypasses this only when the user says so.`,
   }
 }

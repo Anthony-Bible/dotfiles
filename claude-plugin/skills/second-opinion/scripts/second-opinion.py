@@ -13,8 +13,8 @@ Usage (from inside the repo):
                                                              relative to REF (default HEAD); --auto applies the
                                                              pre-commit threshold and skips small or non-code Diffs
   second-opinion.py review plan PLAN.md                      Findings on a Plan, checked against the repo's code
-  second-opinion.py gate [--base REF]                        the PR Gate's check: is the branch's Diff (merge-base of REF,
-                                                             default the repo's default branch, to HEAD) Covered by a
+  second-opinion.py gate [--base REF] [--head REF]        the PR Gate's check: is the branch's Diff (merge-base of REF,
+                                                             default the repo's default branch, to HEAD or --head REF) Covered by a
                                                              chain of Ledger entries? Prints {required, reason,
                                                              code_lines, chain_end, base}; exit 0, never writes
   second-opinion.py rebut RUN_DIR REBUTTAL.json             the one Rebuttal turn, in the same Reviewer session;
@@ -361,6 +361,13 @@ def ref_exists(ref):
                           capture_output=True).returncode == 0
 
 
+def resolve_head(name):
+    """The ref a PR's head names: the local branch, else the remote one; None for `owner:branch` or an unknown ref."""
+    if ":" in name or name.startswith("-"):
+        return None
+    return next((r for r in (name, "origin/" + name) if ref_exists(r)), None)
+
+
 def resolve_base(name):
     """The PR base ref to compare against: the remote branch when there is one (a local branch can be stale),
     else the local one. Without a name: origin/HEAD, else the first of origin/main, origin/master, main, master."""
@@ -434,15 +441,15 @@ class Trees:
                 found[prefix + name] = sha
         return found
 
-    def restrict(self, trees):
-        """Fix `rel` to the code paths of these trees."""
+    def restrict(self, trees, extra=()):
+        """Fix `rel` to the code paths of these trees and of `extra` (paths some commit touched on the way)."""
         self.rel, self.dirs, self.sums = set(), {""}, {}
-        for t in trees:
-            for path in self.code_paths(t) or {}:
-                self.rel.add(path)
-                parts = path.split("/")
-                for i in range(1, len(parts)):
-                    self.dirs.add("/".join(parts[:i]) + "/")
+        paths = [p for t in trees for p in (self.code_paths(t) or {})] + [p for p in extra if is_code(p)]
+        for path in paths:
+            self.rel.add(path)
+            parts = path.split("/")
+            for i in range(1, len(parts)):
+                self.dirs.add("/".join(parts[:i]) + "/")
 
     def blob_ok(self, sha):
         if sha not in self.blobs:
@@ -542,11 +549,18 @@ def cmd_gate(a):
         if base is None:
             out({**result, "reason": f"no base branch found ({a.base or 'no origin/HEAD, origin/main, origin/master, main or master'})"})
         result["base"] = base
+        tip = "HEAD"
+        if a.head:
+            tip = resolve_head(a.head)
+            if tip is None:
+                out({**result, "head": a.head, "reason": f"head {a.head} is not a branch this checkout has: not judged"})
+            result["head"] = tip
         try:
-            start = git("rev-parse", git("merge-base", base, "HEAD") + "^{tree}")
+            mb = git("merge-base", base, tip)
+            start = git("rev-parse", mb + "^{tree}")
         except subprocess.CalledProcessError:  # no common history: everything on the branch is new
-            start = empty_tree()
-        candidate = git("rev-parse", "HEAD^{tree}")
+            mb, start = None, empty_tree()
+        candidate = git("rev-parse", tip + "^{tree}")
         remaining = {}
 
         def left(tree):
@@ -554,7 +568,9 @@ def cmd_gate(a):
                 remaining[tree] = trees.code_lines(tree, candidate)
             return remaining[tree]
 
-        trees.restrict([start, candidate])
+        # Paths a commit of the branch touched count too: a rename chain must not hide an edit to its middle path.
+        touched = git("log", "--format=", "--name-only", "-z", "--no-renames", f"{mb}..{tip}" if mb else tip)
+        trees.restrict([start, candidate], [x for x in touched.split("\0") if x])
         total = left(start)
         if total < MIN_CODE_LINES:
             out({**result, "reason": f"below the threshold: {total} changed code lines", "code_lines": total,
@@ -657,7 +673,7 @@ def main():
     d = rs.add_parser("diff", parents=[common]); d.add_argument("--base", default="HEAD")
     d.add_argument("--auto", action="store_true"); d.set_defaults(fn=cmd_review)
     pl = rs.add_parser("plan", parents=[common]); pl.add_argument("plan"); pl.set_defaults(fn=cmd_review)
-    p = sub.add_parser("gate"); p.add_argument("--base"); p.set_defaults(fn=cmd_gate)
+    p = sub.add_parser("gate"); p.add_argument("--base"); p.add_argument("--head"); p.set_defaults(fn=cmd_gate)
     p = sub.add_parser("rebut"); p.add_argument("run"); p.add_argument("rebuttal"); p.set_defaults(fn=cmd_rebut)
     a = ap.parse_args()
     for path in ("plan", "run", "rebuttal"):
