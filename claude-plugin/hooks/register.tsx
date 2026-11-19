@@ -73,7 +73,7 @@ import {
 import { bossToast, checkKey, failingCount, hpBar, initialBosses, newestBoss, onBossCheck, slayAward } from '../mods/boss'
 import { branchGuard, gitSteps, type Repo } from '../mods/branch'
 import { guard, rewriteNote } from '../mods/podman'
-import { reviewGate, reviewVerdict } from '../mods/review-gate'
+import { reviewChecks, reviewVerdict } from '../mods/review-gate'
 import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
 import {
   addressPrompt,
@@ -889,17 +889,24 @@ export const register: Register = on => {
   // --------------------------------------------------------------------------------------------- PR Gate
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const check = reviewGate(e.command)
-    if (check.kind === 'pass' || check.dir === null) return next(e) // the shell computes the directory: no say
-    const home = check.dir?.startsWith('~') ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout : ''
-    const cwd = home ? home + (check.dir as string).slice(1) : check.dir
     const script = `${$.plugin.root}/skills/second-opinion/scripts/second-opinion.py`
-    const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {
-      ...(cwd ? { cwd } : {}),
-      timeoutMs: 15000,
-    })
-    const j = reviewVerdict(run, check.base)
-    return j.kind === 'deny' ? { deny: j.reason } : next(e)
+    const reasons: string[] = []
+    for (const check of reviewChecks(e.command)) {
+      if (check.dir === null) continue // the shell computes the directory: no say
+      try {
+        const home = check.dir?.startsWith('~') ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout : ''
+        const cwd = home ? home + (check.dir as string).slice(1) : check.dir
+        const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {
+          ...(cwd ? { cwd } : {}),
+          timeoutMs: 15000,
+        })
+        const j = reviewVerdict(run, check.base)
+        if (j.kind === 'deny' && !reasons.includes(j.reason)) reasons.push(j.reason)
+      } catch {
+        // a gate that fails to run lets that pull request through
+      }
+    }
+    return reasons.length > 0 ? { deny: reasons.join('\n') } : next(e)
   }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
 
   // ----------------------------------------------------------------------------------------------- HUD

@@ -15,7 +15,7 @@ export type GateCheck = { kind: 'check'; base?: string; dir: string | null | und
 /** gh pr create's flags that take a value: the word after one is that value, never a flag of its own. */
 const CREATE_VALUE_FLAGS = new Set(
   ['-t', '--title', '-b', '--body', '-F', '--body-file', '-H', '--head', '-a', '--assignee', '-l', '--label'].concat([
-    ...['-m', '--milestone', '-p', '--project', '-r', '--reviewer', '-T', '--template', '-R', '--repo'],
+    ...['-m', '--milestone', '-p', '--project', '-r', '--reviewer', '-T', '--template', '-R', '--repo', '--attach', '--recover'],
   ]),
 )
 
@@ -25,8 +25,8 @@ const unquoted = (line: string, w: Word): string => line.slice(w.start, w.end).r
  * The branch named by `-B` / `--base`, however it is attached (`-B main`, `-Bmain`, `-B=main`, `--base=main`).
  * The last one wins; the values of other flags (`--title "--base=x"`) and anything after `--` are not flags.
  */
-const baseOf = (line: string): string | undefined => {
-  const rest = prCreates(line)[0]?.rest ?? []
+const baseOf = (line: string, nth = 0): string | undefined => {
+  const rest = prCreates(line)[nth]?.rest ?? []
   let base: string | undefined
   for (let i = 0; i < rest.length; i++) {
     const t = unquoted(line, rest[i] as Word)
@@ -47,8 +47,14 @@ const baseOf = (line: string): string | undefined => {
  * Hatch. A line that only mentions the command (`echo "gh pr create"`) is not one.
  */
 export const reviewGate = (line: string): { kind: 'pass' } | GateCheck => {
-  if (!isPrCreate(line) || hasAssignment(words(line), REVIEW_HATCH)) return { kind: 'pass' }
-  return { kind: 'check', base: baseOf(line), dir: createDirOf(line) }
+  const first = reviewChecks(line)[0]
+  return first ?? { kind: 'pass' }
+}
+
+/** Every pull request the line opens, each with its own base and directory; none when the line passes. */
+export const reviewChecks = (line: string): GateCheck[] => {
+  if (!isPrCreate(line) || hasAssignment(words(line), REVIEW_HATCH)) return []
+  return prCreates(line).map((_, nth) => ({ kind: 'check' as const, base: baseOf(line, nth), dir: createDirOf(line, nth) }))
 }
 
 /** What the gate script printed, reduced to what the guard needs; undefined for anything that is not its JSON. */

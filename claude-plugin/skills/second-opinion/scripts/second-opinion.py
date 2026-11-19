@@ -373,22 +373,92 @@ def resolve_base(name):
     return next((r for r in ("origin/main", "origin/master", "main", "master") if ref_exists(r)), None)
 
 
-def code_lines_between(old, new):
-    """Changed code lines between two trees by `git diff --numstat` alone: the same is_code rules and the same
-    binary rule as diff_stats, but without reading the patch, so text git took for text that is not UTF-8
-    (which diff_stats leaves out) is counted here. The gate must stay cheap."""
-    if old == new:
-        return 0
-    total = 0
-    for line in git("diff", "--numstat", old, new).splitlines():
-        added, deleted, path = line.split("\t", 2)
-        if is_code(path) and added != "-":
+class Trees:
+    """What the gate knows about trees, each worked out once: a tree's code fingerprint (path -> blob of every code
+    file) and whether a blob is UTF-8 (diff_stats counts a code file that is not as no code, so the gate must too).
+    Objects are read through one long-lived `cat-file --batch`, and a subtree shared by many snapshots is walked
+    once, so the cost follows the distinct trees and not the Ledger's length. A blob is read only when two trees
+    differ at its path."""
+
+    def __init__(self):
+        self.subs, self.bad, self.reader = {}, {}, None
+
+    def read(self, sha, kind):
+        """The object's bytes, or None when it is missing or not of that kind."""
+        if self.reader is None:
+            self.reader = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.reader.stdin.write(sha.encode() + b"\n")
+        self.reader.stdin.flush()
+        header = self.reader.stdout.readline().split()
+        if len(header) != 3:
+            return None
+        data = self.reader.stdout.read(int(header[2]) + 1)[:-1]
+        return data if header[1].decode() == kind else None
+
+    def fingerprint(self, tree):
+        """{path: blob} of the code files under the tree; None when the tree is not in the repository."""
+        if tree not in self.subs:
+            data = self.read(tree, "tree")
+            found = None
+            if data is not None:
+                found, width, at = {}, len(tree) // 2, 0
+                while at < len(data):
+                    nul = data.index(b"\0", at)
+                    mode, _, name = data[at:nul].partition(b" ")
+                    sha = data[nul + 1:nul + 1 + width].hex()
+                    at = nul + 1 + width
+                    name = name.decode("utf-8", "replace")
+                    if mode == b"40000":
+                        for path, blob in (self.fingerprint(sha) or {}).items():
+                            found[name + "/" + path] = blob
+                    elif mode != b"160000" and is_code(name):
+                        found[name] = sha
+            self.subs[tree] = found
+        return self.subs[tree]
+
+    def not_utf8(self, blob):
+        if blob not in self.bad:
+            data = self.read(blob, "blob")
+            try:
+                if data is not None:
+                    data.decode("utf-8")
+                self.bad[blob] = False
+            except UnicodeDecodeError:
+                self.bad[blob] = True
+        return self.bad[blob]
+
+    def same_code(self, one, other):
+        """Do the two trees differ by no code, as the gate counts it? True when every code file that differs has a
+        side that is not UTF-8."""
+        a, b = self.fingerprint(one), self.fingerprint(other)
+        if a is None or b is None:
+            return False
+        if a == b:
+            return True
+        differing = {p for p, _ in a.items() ^ b.items()}
+        return all((p in a and self.not_utf8(a[p])) or (p in b and self.not_utf8(b[p])) for p in differing)
+
+    def code_lines(self, old, new):
+        """Changed code lines between two trees: `git diff --numstat` with the is_code rules and the binary rule of
+        diff_stats, minus the code files that are not UTF-8 on either side (which diff_stats leaves out)."""
+        if old == new:
+            return 0
+        a, b = self.fingerprint(old) or {}, self.fingerprint(new) or {}
+        total = 0
+        for line in git("diff", "--numstat", old, new).splitlines():
+            added, deleted, path = line.split("\t", 2)
+            if not is_code(path) or added == "-":
+                continue
+            if any(p.get(path) and self.not_utf8(p[path]) for p in (a, b)):
+                continue
             total += int(added) + int(deleted)
-    return total
+        return total
 
-
-def tree_exists(tree):
-    return subprocess.run(["git", "cat-file", "-e", tree + "^{tree}"], capture_output=True).returncode == 0
+    def close(self):
+        if self.reader is not None:
+            self.reader.kill()
+            self.reader.wait()
 
 
 def read_ledger():
@@ -410,10 +480,11 @@ def read_ledger():
 
 def cmd_gate(a):
     """Is the branch's Diff Covered? Start at the merge-base tree and follow Ledger entries whose base_tree is the
-    current tree, or differs from it by no code lines (a Review snapshots the working tree, so untracked scratch
-    files ride along in one entry's tree but not in the commit the next entry is based on), to the chain end that
-    leaves the fewest uncovered code lines. Plumbing only: never writes."""
+    current tree, or differs from it by no code (a Review snapshots the working tree, so untracked scratch files
+    ride along in one entry's tree but not in the commit the next entry is based on), to the chain end that leaves
+    the fewest uncovered code lines. Plumbing only: never writes."""
     result = {"required": False, "code_lines": 0, "chain_end": None, "base": a.base}
+    trees = Trees()
     try:
         git("rev-parse", "--verify", "-q", "HEAD^{commit}")
         base = resolve_base(a.base)
@@ -427,34 +498,26 @@ def cmd_gate(a):
 
         def left(tree):
             if tree not in remaining:
-                remaining[tree] = code_lines_between(tree, candidate)
+                remaining[tree] = trees.code_lines(tree, candidate)
             return remaining[tree]
 
         total = left(start)
         if total < MIN_CODE_LINES:
             out({**result, "reason": f"below the threshold: {total} changed code lines", "code_lines": total,
                  "chain_end": start})
-        entries = read_ledger()[-300:]
         by_base = {}
-        for e in entries:
+        for e in read_ledger():
             by_base.setdefault(e["base_tree"], set()).add(e["tree"])
-        usable = {}  # base_tree -> whether its object exists
-
-        def follows(node, bt):
-            if bt == node:
-                return True
-            if bt not in usable:
-                usable[bt] = tree_exists(bt)
-            return usable[bt] and code_lines_between(node, bt) == 0
-
+        # Fingerprint each distinct base_tree once; the ones that are not in this repository drop out.
+        by_base = {bt: ts for bt, ts in by_base.items() if trees.fingerprint(bt) is not None}
         best, seen, todo = start, {start}, [start]
-        while todo and len(seen) < 500:
+        while todo and len(seen) < 2000:
             node = todo.pop()
-            for bt, trees in by_base.items():
-                if not follows(node, bt):
+            for bt, nexts in by_base.items():
+                if bt != node and not trees.same_code(node, bt):
                     continue
-                for nxt in trees:
-                    if nxt in seen or not tree_exists(nxt):
+                for nxt in nexts:
+                    if nxt in seen or trees.fingerprint(nxt) is None:
                         continue
                     seen.add(nxt)
                     todo.append(nxt)
@@ -468,6 +531,8 @@ def cmd_gate(a):
         out({**result, "reason": "not a git repository with a commit, or git failed"})
     except Exception as e:  # fail open
         out({**result, "reason": f"internal error: {type(e).__name__}: {e}"})
+    finally:
+        trees.close()
 
 
 def cmd_rebut(a):

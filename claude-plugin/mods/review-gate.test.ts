@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { REVIEW_HATCH, gateResult, reviewVerdict, reviewGate } from './review-gate'
+import { REVIEW_HATCH, gateResult, reviewChecks, reviewVerdict, reviewGate } from './review-gate'
 
 const rng = (seed: number) => () => {
   seed = (seed * 1103515245 + 12345) & 0x7fffffff
@@ -34,12 +34,36 @@ describe('which lines the PR Gate looks at', () => {
     expect(reviewGate('cd "$DIR" && gh pr create')).toEqual({ kind: 'check', base: undefined, dir: null })
   })
 
-  test('a cd that may not have happened leaves the gate in the line\'s own directory', () => {
+  test('a cd followed by || may not have happened: the directory is unknown, so the gate stays out', () => {
     const dirOf = (line: string) => (reviewGate(line) as { dir?: unknown }).dir
-    expect(dirOf('cd A || gh pr create')).toBeUndefined()
-    expect(dirOf('cd A; gh pr create')).toBeUndefined()
+    expect(dirOf('cd A || gh pr create')).toBeNull()
+    expect(dirOf('cd A; gh pr create')).toBe('A')
     expect(dirOf('cd A && gh pr create')).toBe('A')
     expect(dirOf('cd A; cd /abs && gh pr create')).toBe('/abs')
+  })
+
+  test('every gh pr create on the line is checked with its own base and directory', () => {
+    expect(reviewChecks('gh pr create -B feat --fill; gh pr create --fill')).toEqual([
+      { kind: 'check', base: 'feat', dir: undefined },
+      { kind: 'check', base: undefined, dir: undefined },
+    ])
+    expect(reviewChecks('cd a && gh pr create -B x && cd ../b && gh pr create -B y').map(c => [c.base, c.dir])).toEqual([
+      ['x', 'a'],
+      ['y', 'a/../b'],
+    ])
+    expect(reviewChecks('echo hi')).toEqual([])
+    expect(reviewChecks(`${REVIEW_HATCH} gh pr create; gh pr create`)).toEqual([])
+  })
+
+  test('--attach and --recover take a value, so a base-looking word after them is not a base', () => {
+    const baseOf = (line: string) => (reviewGate(line) as { base?: string }).base
+    expect(baseOf('gh pr create --attach --base=evil')).toBeUndefined()
+    expect(baseOf('gh pr create --recover -B evil')).toBeUndefined()
+    expect(baseOf('gh pr create --recover x -B real')).toBe('real')
+  })
+
+  test('gh asked only for help creates nothing', () => {
+    for (const line of ['gh -h pr create', 'gh --help pr create']) expect(reviewGate(line)).toEqual({ kind: 'pass' })
   })
 
   test('only the base flag names a base: the values of other flags never do, and the last one wins', () => {
@@ -184,6 +208,16 @@ describe('the PR Gate hook', () => {
     for (const command of lines) expect((await $.tool.call({ tool: 'Bash', command })).deny).toBeUndefined()
     expect(ran).toEqual(lines)
     expect(asked).toHaveLength(1)
+  })
+
+  test('a second gh pr create on the line is asked about too, with its own base', async ($, on) => {
+    const { asked } = setup($, on, () => {
+      const base = asked.at(-1)?.argv.at(-1)
+      return GATE({ required: base === 'develop', code_lines: 50, base })
+    })
+    const denied = await $.tool.call({ tool: 'Bash', command: 'gh pr create -B main --fill; gh pr create -B develop --fill' })
+    expect(denied.deny).toContain("This PR's Diff has 50 changed code lines")
+    expect(asked.map(a => a.argv.at(-1))).toEqual(['main', 'develop'])
   })
 
   test('the Hatch never asks the gate, even when it would refuse', async ($, on) => {

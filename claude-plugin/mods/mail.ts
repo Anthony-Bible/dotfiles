@@ -229,83 +229,79 @@ export const nextPollMs = (w: MailWatch, now: number): number => {
 
 // ---------------------------------------------------------------------------------------- Bash lines
 
-/** Each gh command the line runs: its argument words (quoted text masked) and its own span of the line. */
-const ghCommands = (line: string): { args: string[]; text: string }[] => {
-  const ws = words(line)
-  return ws.flatMap((w, i) => {
-    if (!w.isCommand || w.text !== 'gh') return []
-    const args = argsOf(ws, i)
-    const end = (args.at(-1) ?? w).end
-    return [{ args: args.map(a => a.text.replace(/^["']|["']$/g, '')), text: line.slice(w.start, end) }]
-  })
-}
-
 /** gh's flags that take the next word, wherever they sit before the subcommand's own. */
 const GH_VALUE_FLAGS = new Set(['-R', '--repo'])
 
 /**
- * Each `gh pr create` (or its alias `gh pr new`) the line runs, by gh's word index and the words after `create`.
- * gh is matched by basename (`/opt/homebrew/bin/gh`), and its inherited `-R/--repo` may come before or inside `pr`.
+ * Each gh command the line runs, matched by basename (`/opt/homebrew/bin/gh`): gh's word index in the line, its
+ * argument words (quoted text masked), its own span of the line, its subcommand words (`pr`, `create`; gh's
+ * inherited `-R/--repo` may come before or inside them), the words after those, and whether it only asks for help.
  */
-export const prCreates = (line: string): { at: number; rest: Word[] }[] => {
+const ghCommands = (line: string) => {
   const ws = words(line)
   return ws.flatMap((w, at) => {
     if (!w.isCommand || w.text.replace(/^.*\//, '') !== 'gh') return []
-    const args = argsOf(ws, at)
-    const positional: string[] = []
-    for (let k = 0; k < args.length; k++) {
-      const t = (args[k] as Word).text.replace(/^["']|["']$/g, '')
+    const argWords = argsOf(ws, at)
+    const args = argWords.map(a => a.text.replace(/^["']|["']$/g, ''))
+    const sub: string[] = []
+    let help = false
+    let rest: Word[] = []
+    for (let k = 0; k < argWords.length && sub.length < 2; k++) {
+      const t = args[k] as string
       if (t === '--') break
+      if (t === '-h' || t === '--help') help = true
       if (t.startsWith('-')) {
         if (GH_VALUE_FLAGS.has(t)) k++
         continue
       }
-      positional.push(t)
-      if (positional.length === 2) {
-        const ok = positional[0] === 'pr' && (positional[1] === 'create' || positional[1] === 'new')
-        return ok ? [{ at, rest: args.slice(k + 1) }] : []
-      }
+      sub.push(t)
+      rest = argWords.slice(k + 1)
     }
-    return []
+    const end = (argWords.at(-1) ?? w).end
+    return [{ at, args, sub, rest: sub.length === 2 ? rest : [], help, text: line.slice(w.start, end) }]
   })
 }
+
+/**
+ * Each `gh pr create` (or its alias `gh pr new`) the line runs, by gh's word index and the words after `create`;
+ * `gh -h pr create` only prints help and is none.
+ */
+export const prCreates = (line: string): { at: number; rest: Word[] }[] =>
+  ghCommands(line).flatMap(({ at, sub, rest, help }) =>
+    !help && sub[0] === 'pr' && (sub[1] === 'create' || sub[1] === 'new') ? [{ at, rest }] : [],
+  )
 
 export const isPrCreate = (line: string): boolean => prCreates(line).length > 0
 
 /**
- * The directory the line's gh pr create runs in, from the cds before it: undefined when none moved, null when the
- * shell computes it (a variable, a substitution, `cd -`).
+ * The directory the nth gh pr create of the line runs in, from the cds before it, each taken to have worked:
+ * undefined when none moved, null when the shell computes it (a variable, a substitution, `cd -`) or when a `||`
+ * after a cd may run it where the cd did not.
  */
-export const createDirOf = (line: string): string | null | undefined => {
+export const createDirOf = (line: string, nth = 0): string | null | undefined => {
   const ws = words(line)
-  const at = prCreates(line)[0]?.at ?? -1
-  type Dir = string | null | undefined
-  const unique = (xs: Dir[]): Dir[] => [...new Set(xs)]
-  // Where the command may run: `dirs` if every `cd` since the chain last broke succeeded, `fallback` if one failed.
-  let dirs: Dir[] = [undefined]
-  let fallback: Dir[] = []
+  const at = prCreates(line)[nth]?.at ?? -1
+  let dir: string | null | undefined
+  let uncertain = false
+  let cdInList = false // a cd since the last `;` or newline
   for (let i = 0; i <= at; i++) {
     const w = ws[i] as Word
-    if (w.startsCommand && w.joinedBy.replace(/\n/g, '') !== '&&') {
-      dirs = unique([...dirs, ...fallback])
-      fallback = []
+    if (w.startsCommand) {
+      const op = w.joinedBy.replace(/\n/g, '')
+      if (op === '||' && cdInList) uncertain = true
+      if (op === '' || op === ';' || op === '&') cdInList = false
     }
     if (i === at || !w.isCommand || w.text !== 'cd') continue
+    cdInList = true
     const arg = argsOf(ws, i).find(a => a.text === '-' || !a.text.startsWith('-'))
     const to = arg?.text ?? '~'
     // The words drop a substitution's `$(`; the line between cd and its argument still holds it.
     const raw = line.slice(w.end, arg?.end ?? w.end)
-    const computed = to === '-' || /[$`\x00"'*?\\()]/.test(raw)
-    fallback = unique([...fallback, ...dirs])
-    dirs = unique(
-      dirs.map(d => {
-        if (computed) return null
-        if (/^[/~]/.test(to) || d === undefined) return to
-        return d === null ? null : `${d}/${to}`
-      }),
-    )
+    if (to === '-' || /[$`\x00"'*?\\()]/.test(raw)) dir = null
+    else if (/^[/~]/.test(to) || dir === undefined) dir = to
+    else if (dir !== null) dir = `${dir}/${to}`
   }
-  return dirs.length === 1 ? dirs[0] : undefined
+  return uncertain ? null : dir
 }
 
 const WRITE_FLAGS = new Set(['-f', '-F', '--field', '--raw-field', '--input'])
@@ -319,9 +315,9 @@ const isMutation = (text: string): boolean => {
 
 /** The line posts to GitHub as the viewer: a PR comment or review, or a write through gh api. */
 export const isPost = (line: string): boolean =>
-  ghCommands(line).some(({ args: a, text }) => {
-    if (a[0] === 'pr') return a[1] === 'comment' || a[1] === 'review'
-    if (a[0] !== 'api') return false
+  ghCommands(line).some(({ args: a, sub, text }) => {
+    if (sub[0] === 'pr') return sub[1] === 'comment' || sub[1] === 'review'
+    if (sub[0] !== 'api') return false
     if (a.includes('graphql')) return isMutation(text)
     const method = a.findIndex(x => x === '-X' || x === '--method')
     if (method >= 0) return (a[method + 1] ?? '').toUpperCase() !== 'GET'

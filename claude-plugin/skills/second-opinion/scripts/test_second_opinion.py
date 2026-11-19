@@ -278,6 +278,40 @@ class Gate(Repo):
             f.write("not json\n[1]\n{}\n")
         self.assertTrue(self.gate()["required"])
 
+    def test_a_busy_shared_ledger_stays_fast_and_still_chains(self):
+        import time
+        trees = []
+        for k in range(320):  # other branches' snapshots in the shared Ledger: real trees, none on this branch
+            blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.repo, env=self.env, check=True,
+                                  input=f"package p{k}\n" * 30, capture_output=True, text=True).stdout.strip()
+            trees.append(subprocess.run(["git", "mktree"], cwd=self.repo, env=self.env, check=True,
+                                        input=f"100644 blob {blob}\tother{k}.go\n", capture_output=True,
+                                        text=True).stdout.strip())
+        for a, b in zip(trees, trees[1:]):
+            self.ledger(a, b)
+        for _ in range(5):
+            self.ledger(*self.commit(5))
+        started = time.monotonic()
+        result = self.gate()
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
+
+    def test_a_branch_whose_only_code_change_is_not_utf8_is_not_required(self):
+        with open(os.path.join(self.repo, "audio.go"), "wb") as f:
+            f.write(b"\xff\xfe\n" + b"sample\n" * 40)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "fixture")
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
+
+    def test_a_non_utf8_change_next_to_real_code_counts_only_the_real_code(self):
+        with open(os.path.join(self.repo, "audio.go"), "wb") as f:
+            f.write(b"\xff\xfe\n" + b"sample\n" * 40)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "fixture")
+        self.commit(25)
+        self.assertEqual(self.gate()["code_lines"], 25)
+
     def test_a_waiver_line_in_a_commit_message_does_not_bypass(self):
         self.commit(30)
         self.git("commit", "-q", "--allow-empty", "-m", "fix\n\nsecond-opinion waiver: the user accepted it")
@@ -478,6 +512,20 @@ class Ledger(Repo):
             self.git("add", name)
             self.git("commit", "-q", "-m", name)
         self.assertEqual(len(self.entries()), 3)
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
+
+    def test_per_commit_reviews_chain_through_an_untracked_non_utf8_scratch_file(self):
+        with open(os.path.join(self.repo, "scratch.go"), "wb") as f:
+            f.write(b"\xff\xfe raw\n")  # untracked code-extension file git takes for text
+        for n in range(3):
+            name = f"file{n}.go"
+            with open(os.path.join(self.repo, name), "w") as f:
+                f.write("".join(f"v{i}\n" for i in range(15)))
+            code, _ = self.review("--auto")
+            self.assertEqual(code, 4)
+            self.git("add", name)
+            self.git("commit", "-q", "-m", name)
         result = self.gate()
         self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
 
