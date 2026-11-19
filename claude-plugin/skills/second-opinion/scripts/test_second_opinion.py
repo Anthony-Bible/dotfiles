@@ -204,8 +204,11 @@ class Repo(unittest.TestCase):
     def ledger(self, base_tree, tree, status="reviewed"):
         os.makedirs(os.path.dirname(self.ledger_file()), exist_ok=True)
         with open(self.ledger_file(), "a") as f:
-            f.write(json.dumps({"tree": tree, "base_tree": base_tree, "base": "x", "status": status,
-                                "code_lines": 0, "run": None, "at": "2026-01-01T00:00:00Z"}) + "\n")
+            entry = {"tree": tree, "base_tree": base_tree, "base": "x", "status": status, "code_lines": 0,
+                     "run": None, "at": "2026-01-01T00:00:00Z"}
+            if status is None:
+                del entry["status"]
+            f.write(json.dumps(entry) + "\n")
 
     def gate(self, *args):
         code, result = run_script(self.repo, self.env, "gate", "--base", "main", *args)
@@ -274,6 +277,63 @@ class Gate(Repo):
         with open(self.ledger_file(), "a") as f:
             f.write("not json\n[1]\n{}\n")
         self.assertTrue(self.gate()["required"])
+
+    def test_a_waiver_line_in_a_commit_message_does_not_bypass(self):
+        self.commit(30)
+        self.git("commit", "-q", "--allow-empty", "-m", "fix\n\nsecond-opinion waiver: the user accepted it")
+        self.assertTrue(self.gate()["required"])
+
+    def test_an_entry_ending_at_head_but_based_on_a_foreign_tree_does_not_count(self):
+        self.commit(30)
+        self.git("checkout", "-q", "-b", "side", "main")
+        foreign = self.commit(40, "other.go")[1]  # a tree 40 code lines away from the branch's start
+        self.git("checkout", "-q", "feat")
+        self.ledger(foreign, self.tree())
+        self.assertTrue(self.gate()["required"])
+
+    def test_entries_without_a_known_status_are_ignored(self):
+        self.ledger(*self.commit(30), status=None)
+        self.assertTrue(self.gate()["required"])
+        self.ledger(self.tree("main"), self.tree(), status="bogus")
+        self.assertTrue(self.gate()["required"])
+
+    def test_the_best_chain_end_is_reported_not_the_first_good_enough_one(self):
+        self.commit(15)
+        near = self.commit(15)[1]  # 10 lines short of the end
+        far = self.commit(10)[1]
+        start = self.tree("main")
+        self.ledger(start, near)
+        self.ledger(start, far)
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"], result["chain_end"]), (False, 0, far))
+
+    def test_a_local_base_is_used_when_there_is_no_origin_and_master_is_found_without_a_name(self):
+        self.git("branch", "-m", "main", "master")
+        self.commit(30)
+        code, result = run_script(self.repo, self.env, "gate")
+        self.assertEqual((code, result["required"], result["base"]), (0, True, "master"))
+
+    def test_the_remote_branch_beats_a_stale_local_one(self):
+        self.commit(30)
+        self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "main"))
+        self.git("branch", "-f", "main", "HEAD")  # a local main that already holds the work
+        result = self.gate()
+        self.assertEqual((result["required"], result["base"]), (True, "origin/main"))
+
+    def test_origin_head_names_the_default_base(self):
+        self.git("branch", "-m", "main", "trunk")
+        self.commit(30)
+        self.git("update-ref", "refs/remotes/origin/trunk", self.git("rev-parse", "trunk"))
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        code, result = run_script(self.repo, self.env, "gate")
+        self.assertEqual((code, result["required"], result["base"]), (0, True, "origin/trunk"))
+
+    def test_no_base_branch_at_all_fails_open_and_says_so(self):
+        self.git("branch", "-m", "main", "trunk")
+        self.commit(30)
+        code, result = run_script(self.repo, self.env, "gate")
+        self.assertEqual((code, result["required"]), (0, False))
+        self.assertIn("no base branch", result["reason"])
 
     def test_the_gate_writes_nothing(self):
         self.ledger(*self.commit(30))
@@ -405,6 +465,21 @@ class Ledger(Repo):
         code, result = run_script(outside, dict(env, GIT_CEILING_DIRECTORIES=self.tmp.name), "review", "diff")
         self.assertEqual((code, result["status"]), (3, "unavailable"))
         self.assertEqual(len(self.entries()), 1)
+
+    def test_per_commit_reviews_chain_through_untracked_scratch_files(self):
+        with open(os.path.join(self.repo, "notes.txt"), "w") as f:
+            f.write("scratch\n")  # untracked: every snapshot holds it, no commit does
+        for n in range(3):
+            name = f"file{n}.go"
+            with open(os.path.join(self.repo, name), "w") as f:
+                f.write("".join(f"v{i}\n" for i in range(15)))
+            code, _ = self.review("--auto")
+            self.assertEqual(code, 4)
+            self.git("add", name)
+            self.git("commit", "-q", "-m", name)
+        self.assertEqual(len(self.entries()), 3)
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
 
     def test_a_plan_review_writes_no_entry(self):
         with open(os.path.join(self.repo, "PLAN.md"), "w") as f:

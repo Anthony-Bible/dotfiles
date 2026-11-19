@@ -43,6 +43,7 @@ works too.
 """
 import argparse, json, os, re, shutil, signal, subprocess, sys, tempfile, time, uuid
 
+LEDGER_STATUSES = ("reviewed", "skipped", "unavailable")
 EXIT_OK, EXIT_USAGE, EXIT_UNAVAILABLE, EXIT_SKIPPED = 0, 2, 3, 4
 MIN_CODE_LINES = 20
 PROMPT_CAP = 150_000
@@ -353,11 +354,37 @@ def cmd_review(a):
                                                               else {})})
 
 
-def default_base():
+def ref_exists(ref):
+    return subprocess.run(["git", "rev-parse", "--verify", "-q", ref + "^{commit}"],
+                          capture_output=True).returncode == 0
+
+
+def resolve_base(name):
+    """The PR base ref to compare against: the remote branch when there is one (a local branch can be stale),
+    else the local one. Without a name: origin/HEAD, else the first of origin/main, origin/master, main, master."""
+    if name:
+        return next((r for r in ("origin/" + name, name) if ref_exists(r)), None)
     try:
-        return git("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD") or "main"
+        head = git("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
+        if head and ref_exists(head):
+            return head
     except subprocess.CalledProcessError:
-        return "main"
+        pass
+    return next((r for r in ("origin/main", "origin/master", "main", "master") if ref_exists(r)), None)
+
+
+def code_lines_between(old, new):
+    """Changed code lines between two trees by `git diff --numstat` alone: the same is_code rules and the same
+    binary rule as diff_stats, but without reading the patch, so text git took for text that is not UTF-8
+    (which diff_stats leaves out) is counted here. The gate must stay cheap."""
+    if old == new:
+        return 0
+    total = 0
+    for line in git("diff", "--numstat", old, new).splitlines():
+        added, deleted, path = line.split("\t", 2)
+        if is_code(path) and added != "-":
+            total += int(added) + int(deleted)
+    return total
 
 
 def tree_exists(tree):
@@ -373,7 +400,8 @@ def read_ledger():
                     e = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if isinstance(e, dict) and isinstance(e.get("tree"), str) and isinstance(e.get("base_tree"), str):
+                if (isinstance(e, dict) and isinstance(e.get("tree"), str) and isinstance(e.get("base_tree"), str)
+                        and e.get("status") in LEDGER_STATUSES):
                     entries.append(e)
     except OSError:
         pass
@@ -381,47 +409,57 @@ def read_ledger():
 
 
 def cmd_gate(a):
-    """Is the branch's Diff Covered? Start at the merge-base tree and follow Ledger entries (any status) whose
-    base_tree is the current tree, to the chain end that leaves the fewest uncovered code lines. Plumbing only."""
-    base = a.base or default_base()
-    result = {"required": False, "code_lines": 0, "chain_end": None, "base": base}
+    """Is the branch's Diff Covered? Start at the merge-base tree and follow Ledger entries whose base_tree is the
+    current tree, or differs from it by no code lines (a Review snapshots the working tree, so untracked scratch
+    files ride along in one entry's tree but not in the commit the next entry is based on), to the chain end that
+    leaves the fewest uncovered code lines. Plumbing only: never writes."""
+    result = {"required": False, "code_lines": 0, "chain_end": None, "base": a.base}
     try:
         git("rev-parse", "--verify", "-q", "HEAD^{commit}")
-        start_commit = None
-        for ref in (base, "origin/" + base):
-            try:
-                start_commit = git("merge-base", ref, "HEAD")
-                break
-            except subprocess.CalledProcessError:
-                continue
-        if start_commit is None:
-            out({**result, "reason": f"no merge base with {base}"})
+        base = resolve_base(a.base)
+        if base is None:
+            out({**result, "reason": f"no base branch found ({a.base or 'no origin/HEAD, origin/main, origin/master, main or master'})"})
+        result["base"] = base
+        start_commit = git("merge-base", base, "HEAD")
         start = git("rev-parse", start_commit + "^{tree}")
         candidate = git("rev-parse", "HEAD^{tree}")
         remaining = {}
 
         def left(tree):
             if tree not in remaining:
-                remaining[tree] = 0 if tree == candidate else diff_stats(tree, candidate)[0]["code_lines"]
+                remaining[tree] = code_lines_between(tree, candidate)
             return remaining[tree]
 
         total = left(start)
         if total < MIN_CODE_LINES:
             out({**result, "reason": f"below the threshold: {total} changed code lines", "code_lines": total,
                  "chain_end": start})
-        links = {}
-        for e in read_ledger():
-            links.setdefault(e["base_tree"], set()).add(e["tree"])
+        entries = read_ledger()[-300:]
+        by_base = {}
+        for e in entries:
+            by_base.setdefault(e["base_tree"], set()).add(e["tree"])
+        usable = {}  # base_tree -> whether its object exists
+
+        def follows(node, bt):
+            if bt == node:
+                return True
+            if bt not in usable:
+                usable[bt] = tree_exists(bt)
+            return usable[bt] and code_lines_between(node, bt) == 0
+
         best, seen, todo = start, {start}, [start]
-        while todo and len(seen) < 500 and left(best) >= MIN_CODE_LINES:
+        while todo and len(seen) < 500:
             node = todo.pop()
-            for nxt in links.get(node, ()):
-                if nxt in seen or not tree_exists(nxt):
+            for bt, trees in by_base.items():
+                if not follows(node, bt):
                     continue
-                seen.add(nxt)
-                todo.append(nxt)
-                if left(nxt) < left(best):
-                    best = nxt
+                for nxt in trees:
+                    if nxt in seen or not tree_exists(nxt):
+                        continue
+                    seen.add(nxt)
+                    todo.append(nxt)
+                    if left(nxt) < left(best):
+                        best = nxt
         n = left(best)
         out({**result, "required": n >= MIN_CODE_LINES, "code_lines": n, "chain_end": best,
              "reason": (f"Covered: {n} uncovered code lines of {total}" if n < MIN_CODE_LINES

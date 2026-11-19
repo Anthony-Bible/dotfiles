@@ -245,7 +245,12 @@ describe('the Bash lines Sponsor Mail reads', () => {
   test('gh pr create opens the watch; a line that only mentions it does not', () => {
     expect(isPrCreate('git push -u origin HEAD && gh pr create --fill')).toBe(true)
     expect(isPrCreate('cd x && gh pr create -t "t" -b "$(cat body.md)"')).toBe(true)
-    for (const line of ['echo "gh pr create"', 'gh pr view', 'gh pr list | grep create']) expect(isPrCreate(line)).toBe(false)
+    for (const line of ['gh pr new', '/opt/homebrew/bin/gh pr create', '/usr/bin/env gh pr create', 'gh -R o/r pr create', 'gh --repo=o/r pr create', 'gh pr -R o/r create']) {
+      expect(isPrCreate(line)).toBe(true)
+    }
+    for (const line of ['echo "gh pr create"', 'gh pr view', 'gh pr list | grep create', 'gh pr comment -b create', 'gh -R o/r pr view']) {
+      expect(isPrCreate(line)).toBe(false)
+    }
   })
 
   test('posting a comment, a review or a write through gh api is a post; reading is not', () => {
@@ -282,6 +287,8 @@ describe('where gh pr create ran', () => {
     expect(createDirOf('cd a; cd ~/b && gh pr create')).toBe('~/b')
     expect(createDirOf('gh pr create && cd elsewhere')).toBeUndefined()
     expect(createDirOf('cd -P /tmp && gh pr create')).toBe('/tmp')
+    expect(createDirOf('cd A || gh pr create')).toBeUndefined()
+    expect(createDirOf('cd A; gh pr create')).toBeUndefined()
     expect(createDirOf('cd - && gh pr create')).toBeNull()
     expect(createDirOf('cd "$DIR" && gh pr create')).toBeNull()
     expect(createDirOf('cd $(git rev-parse --show-toplevel)/x && gh pr create')).toBeNull()

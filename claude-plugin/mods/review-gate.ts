@@ -1,8 +1,8 @@
 // The PR Gate's pure half: which Bash lines open a pull request, what the second-opinion gate said about the
 // branch, and the refusal. Only `gh pr create` is gated, never `git commit`. No `$` here.
 
-import { createDirOf, isPrCreate } from './mail'
-import { argsOf, hasAssignment, words } from './shell'
+import { createDirOf, isPrCreate, prCreates } from './mail'
+import { hasAssignment, words, type Word } from './shell'
 
 export type Judged = { kind: 'pass' } | { kind: 'deny'; reason: string }
 
@@ -12,22 +12,34 @@ export const REVIEW_HATCH = 'REVIEW_OK=1'
 /** What to ask the gate about: the PR's base branch if the line names one, and where the line runs it. */
 export type GateCheck = { kind: 'check'; base?: string; dir: string | null | undefined }
 
-/** The branch named by `-B` / `--base`, however it is attached: `-B main`, `-Bmain`, `-B=main`, `--base=main`. */
+/** gh pr create's flags that take a value: the word after one is that value, never a flag of its own. */
+const CREATE_VALUE_FLAGS = new Set(
+  ['-t', '--title', '-b', '--body', '-F', '--body-file', '-H', '--head', '-a', '--assignee', '-l', '--label'].concat([
+    ...['-m', '--milestone', '-p', '--project', '-r', '--reviewer', '-T', '--template', '-R', '--repo'],
+  ]),
+)
+
+const unquoted = (line: string, w: Word): string => line.slice(w.start, w.end).replace(/["']/g, '')
+
+/**
+ * The branch named by `-B` / `--base`, however it is attached (`-B main`, `-Bmain`, `-B=main`, `--base=main`).
+ * The last one wins; the values of other flags (`--title "--base=x"`) and anything after `--` are not flags.
+ */
 const baseOf = (line: string): string | undefined => {
-  const ws = words(line)
-  const at = ws.findIndex((w, i) => {
-    const a = argsOf(ws, i)
-    return w.isCommand && w.text === 'gh' && a[0]?.text === 'pr' && a[1]?.text === 'create'
-  })
-  if (at < 0) return undefined
-  const args = argsOf(ws, at).map(a => line.slice(a.start, a.end).replace(/["']/g, ''))
-  for (let i = 0; i < args.length; i++) {
-    const t = args[i] as string
-    if (t === '-B' || t === '--base') return args[i + 1]
-    const attached = t.match(/^(?:--base=|-B=?)(.+)$/)
-    if (attached) return attached[1]
+  const rest = prCreates(line)[0]?.rest ?? []
+  let base: string | undefined
+  for (let i = 0; i < rest.length; i++) {
+    const t = unquoted(line, rest[i] as Word)
+    if (t === '--') break
+    if (t === '-B' || t === '--base') {
+      const next = rest[i + 1]
+      if (next) base = unquoted(line, next)
+      i++
+    } else if (t.startsWith('--base=')) base = t.slice(7)
+    else if (t.startsWith('-B') && !t.startsWith('--')) base = t.slice(2).replace(/^=/, '')
+    else if (CREATE_VALUE_FLAGS.has(t)) i++
   }
-  return undefined
+  return base || undefined
 }
 
 /**

@@ -34,6 +34,41 @@ describe('which lines the PR Gate looks at', () => {
     expect(reviewGate('cd "$DIR" && gh pr create')).toEqual({ kind: 'check', base: undefined, dir: null })
   })
 
+  test('a cd that may not have happened leaves the gate in the line\'s own directory', () => {
+    const dirOf = (line: string) => (reviewGate(line) as { dir?: unknown }).dir
+    expect(dirOf('cd A || gh pr create')).toBeUndefined()
+    expect(dirOf('cd A; gh pr create')).toBeUndefined()
+    expect(dirOf('cd A && gh pr create')).toBe('A')
+    expect(dirOf('cd A; cd /abs && gh pr create')).toBe('/abs')
+  })
+
+  test('only the base flag names a base: the values of other flags never do, and the last one wins', () => {
+    const baseOf = (line: string) => (reviewGate(line) as { base?: string }).base
+    expect(baseOf('gh pr create --title "-Bump deps"')).toBeUndefined()
+    expect(baseOf('gh pr create --title "--base=evil" --fill')).toBeUndefined()
+    expect(baseOf('gh pr create -b "-B evil" -B main')).toBe('main')
+    expect(baseOf('gh pr create -B first --base=second')).toBe('second')
+    expect(baseOf('gh pr create --base=a -B b')).toBe('b')
+    expect(baseOf('gh pr create -t x --body-file -B -B real')).toBe('real')
+    expect(baseOf('gh pr create -- -B evil')).toBeUndefined()
+    expect(baseOf('gh pr create -Bmain')).toBe('main')
+    expect(baseOf('gh -R o/r pr create -B dev')).toBe('dev')
+  })
+
+  test('gh by path, inherited flags and the new alias are still the gated command', () => {
+    for (const line of [
+      '/opt/homebrew/bin/gh pr create',
+      'gh pr new --fill',
+      'gh -R o/r pr create',
+      'gh --repo=o/r pr create',
+      'gh pr -R o/r create',
+      '/usr/bin/env gh pr create',
+      'sudo /usr/local/bin/gh pr create',
+    ]) {
+      expect(reviewGate(line).kind).toBe('check')
+    }
+  })
+
   test('a line that only mentions the command, or any other gh or git command, passes', () => {
     for (const line of [
       'echo "gh pr create"',

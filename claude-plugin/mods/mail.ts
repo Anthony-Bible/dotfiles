@@ -2,7 +2,7 @@
 // Answered, what its checks did since the last look, and which Bash lines open the watch or post as Claude.
 // No `$` here.
 
-import { argsOf, words } from './shell'
+import { argsOf, words, type Word } from './shell'
 import type { Award } from './points'
 
 export type CheckState = 'pass' | 'fail' | 'pending'
@@ -240,8 +240,37 @@ const ghCommands = (line: string): { args: string[]; text: string }[] => {
   })
 }
 
-export const isPrCreate = (line: string): boolean =>
-  ghCommands(line).some(({ args: a }) => a[0] === 'pr' && a[1] === 'create')
+/** gh's flags that take the next word, wherever they sit before the subcommand's own. */
+const GH_VALUE_FLAGS = new Set(['-R', '--repo'])
+
+/**
+ * Each `gh pr create` (or its alias `gh pr new`) the line runs, by gh's word index and the words after `create`.
+ * gh is matched by basename (`/opt/homebrew/bin/gh`), and its inherited `-R/--repo` may come before or inside `pr`.
+ */
+export const prCreates = (line: string): { at: number; rest: Word[] }[] => {
+  const ws = words(line)
+  return ws.flatMap((w, at) => {
+    if (!w.isCommand || w.text.replace(/^.*\//, '') !== 'gh') return []
+    const args = argsOf(ws, at)
+    const positional: string[] = []
+    for (let k = 0; k < args.length; k++) {
+      const t = (args[k] as Word).text.replace(/^["']|["']$/g, '')
+      if (t === '--') break
+      if (t.startsWith('-')) {
+        if (GH_VALUE_FLAGS.has(t)) k++
+        continue
+      }
+      positional.push(t)
+      if (positional.length === 2) {
+        const ok = positional[0] === 'pr' && (positional[1] === 'create' || positional[1] === 'new')
+        return ok ? [{ at, rest: args.slice(k + 1) }] : []
+      }
+    }
+    return []
+  })
+}
+
+export const isPrCreate = (line: string): boolean => prCreates(line).length > 0
 
 /**
  * The directory the line's gh pr create runs in, from the cds before it: undefined when none moved, null when the
@@ -249,22 +278,34 @@ export const isPrCreate = (line: string): boolean =>
  */
 export const createDirOf = (line: string): string | null | undefined => {
   const ws = words(line)
-  const at = ws.findIndex((w, i) => {
-    const a = argsOf(ws, i)
-    return w.isCommand && w.text === 'gh' && a[0]?.text === 'pr' && a[1]?.text === 'create'
-  })
-  let dir: string | null | undefined
-  for (let i = 0; i < at; i++) {
-    if (!ws[i]!.isCommand || ws[i]!.text !== 'cd') continue
+  const at = prCreates(line)[0]?.at ?? -1
+  type Dir = string | null | undefined
+  const unique = (xs: Dir[]): Dir[] => [...new Set(xs)]
+  // Where the command may run: `dirs` if every `cd` since the chain last broke succeeded, `fallback` if one failed.
+  let dirs: Dir[] = [undefined]
+  let fallback: Dir[] = []
+  for (let i = 0; i <= at; i++) {
+    const w = ws[i] as Word
+    if (w.startsCommand && w.joinedBy.replace(/\n/g, '') !== '&&') {
+      dirs = unique([...dirs, ...fallback])
+      fallback = []
+    }
+    if (i === at || !w.isCommand || w.text !== 'cd') continue
     const arg = argsOf(ws, i).find(a => a.text === '-' || !a.text.startsWith('-'))
     const to = arg?.text ?? '~'
     // The words drop a substitution's `$(`; the line between cd and its argument still holds it.
-    const raw = line.slice(ws[i]!.end, arg?.end ?? ws[i]!.end)
-    if (to === '-' || /[$`\x00"'*?\\()]/.test(raw)) dir = null
-    else if (/^[/~]/.test(to) || dir === undefined) dir = to
-    else if (dir !== null) dir = `${dir}/${to}`
+    const raw = line.slice(w.end, arg?.end ?? w.end)
+    const computed = to === '-' || /[$`\x00"'*?\\()]/.test(raw)
+    fallback = unique([...fallback, ...dirs])
+    dirs = unique(
+      dirs.map(d => {
+        if (computed) return null
+        if (/^[/~]/.test(to) || d === undefined) return to
+        return d === null ? null : `${d}/${to}`
+      }),
+    )
   }
-  return dir
+  return dirs.length === 1 ? dirs[0] : undefined
 }
 
 const WRITE_FLAGS = new Set(['-f', '-F', '--field', '--raw-field', '--input'])
