@@ -19,6 +19,9 @@
 // Branch Guard: a git commit on a Protected Branch, or a push that lands on one, is refused; a BRANCH_OK=1
 // line passes untouched.
 //
+// PR Gate: a `gh pr create` whose Diff has 20+ changed code lines that no second-opinion Review covers is refused;
+// a REVIEW_OK=1 line passes untouched. `git commit` is never gated.
+//
 // Floor Boss: three red runs in a row of one Check command summon a named boss above the prompt, its HP the
 // failing-test count; that command's next green run slays it for 100 CP and an Achievement.
 //
@@ -70,6 +73,7 @@ import {
 import { bossToast, checkKey, failingCount, hpBar, initialBosses, newestBoss, onBossCheck, slayAward } from '../mods/boss'
 import { branchGuard, gitSteps, type Repo } from '../mods/branch'
 import { guard, rewriteNote } from '../mods/podman'
+import { reviewGate, reviewVerdict } from '../mods/review-gate'
 import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
 import {
   addressPrompt,
@@ -880,6 +884,22 @@ export const register: Register = on => {
     for (const dir of new Set(steps.map(s => s.dir))) repos.set(dir, await repoAt($, dir))
     const g = branchGuard(e.command, dir => repos.get(dir))
     return g.kind === 'deny' ? { deny: g.reason } : next(e)
+  }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
+
+  // --------------------------------------------------------------------------------------------- PR Gate
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const check = reviewGate(e.command)
+    if (check.kind === 'pass' || check.dir === null) return next(e) // the shell computes the directory: no say
+    const home = check.dir?.startsWith('~') ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout : ''
+    const cwd = home ? home + (check.dir as string).slice(1) : check.dir
+    const script = `${$.plugin.root}/skills/second-opinion/scripts/second-opinion.py`
+    const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {
+      ...(cwd ? { cwd } : {}),
+      timeoutMs: 15000,
+    })
+    const j = reviewVerdict(run, check.base)
+    return j.kind === 'deny' ? { deny: j.reason } : next(e)
   }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
 
   // ----------------------------------------------------------------------------------------------- HUD

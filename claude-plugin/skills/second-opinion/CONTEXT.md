@@ -71,6 +71,18 @@ _Avoid_: dismissed, false positive
 The user's explicit decision to commit despite a Confirmed Finding.
 _Avoid_: override, skip
 
+**Ledger**:
+The append-only record, per repository, of every attempt to Review a Diff, including skipped and unavailable ones.
+_Avoid_: log, history, run list
+
+**Covered**:
+A Diff is Covered when a chain of Ledger entries from its base accounts for all but fewer than 20 of its changed code lines.
+_Avoid_: reviewed (for a whole PR), approved
+
+**PR Gate**:
+The check that stops a pull request from being opened while its Diff is not Covered.
+_Avoid_: review guard, hook
+
 ## Relationships
 
 - A **Review** covers exactly one **Review Target** and produces zero or more **Findings**

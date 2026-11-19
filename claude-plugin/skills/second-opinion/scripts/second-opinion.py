@@ -13,7 +13,11 @@ Usage (from inside the repo):
                                                              relative to REF (default HEAD); --auto applies the
                                                              pre-commit threshold and skips small or non-code Diffs
   second-opinion.py review plan PLAN.md                      Findings on a Plan, checked against the repo's code
-  second-opinion.py rebut RUN_DIR REBUTTAL.json              the one Rebuttal turn, in the same Reviewer session;
+  second-opinion.py gate [--base REF]                        the PR Gate's check: is the branch's Diff (merge-base of REF,
+                                                             default the repo's default branch, to HEAD) Covered by a
+                                                             chain of Ledger entries? Prints {required, reason,
+                                                             code_lines, chain_end, base}; exit 0, never writes
+  second-opinion.py rebut RUN_DIR REBUTTAL.json             the one Rebuttal turn, in the same Reviewer session;
                                                              REBUTTAL.json = [{"finding_id": 1, "argument": "..."}]
   common: [--effort high] [--timeout 600] [--intent TEXT]
 
@@ -28,6 +32,10 @@ fresh detached worktree inside the run directory (`git worktree add --detach`) a
 `-w existing`; muse leaves a caller-owned worktree alone, and the script removes it after the turn, whatever
 the outcome. (`-w create` is out: since muse 1.4.3 its sandbox may not create .git/worktrees/ entries.) Turn 2
 resumes the same session in a new worktree of the same snapshot. No branches are created.
+
+Ledger: every `review diff` attempt (reviewed, skipped or unavailable) appends one JSON line to
+<git-common-dir>/second-opinion/ledger.jsonl: {tree, base_tree, base, status, code_lines, run, at}. A failed
+write is swallowed and never changes the exit status or stdout. Plan Reviews write no entry.
 
 The 10-minute budget covers the review and the Rebuttal together. Runs are kept in <git-dir>/second-opinion/.
 Python 3.8+, stdlib only. Runs through `uv run --script` (PEP 723 metadata above); `python3 second-opinion.py`
@@ -170,6 +178,38 @@ def diff_stats(base, snap):
     return {"files": files, "code_files": code_files, "code_lines": code_lines, "omitted": omitted}, diff.strip()
 
 
+def diff_base(a):
+    return git("rev-parse", "HEAD") if a.base == "HEAD" else git("merge-base", a.base, "HEAD")
+
+
+def ledger_path():
+    return os.path.join(git("rev-parse", "--path-format=absolute", "--git-common-dir"), "second-opinion",
+                        "ledger.jsonl")
+
+
+def log_attempt(a, status, snap=None, base=None, stats=None, run=None):
+    """Append one Ledger line for a `review diff` attempt. Best effort: nothing here may change the outcome."""
+    try:
+        if a.target != "diff":
+            return
+        if snap is None:  # an early exit: take the snapshot now, if there is a repository to take it in
+            os.chdir(git("rev-parse", "--show-toplevel"))
+            snap = snapshot()
+        if base is None:
+            base = diff_base(a)
+        if stats is None:
+            stats = diff_stats(base, snap)[0]
+        entry = {"tree": git("rev-parse", snap + "^{tree}"), "base_tree": git("rev-parse", base + "^{tree}"),
+                 "base": base, "status": status, "code_lines": stats["code_lines"], "run": run,
+                 "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        path = ledger_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
 def remove_worktree(path):
     subprocess.run(["git", "worktree", "remove", "--force", path], capture_output=True)
     shutil.rmtree(path, ignore_errors=True)  # in case git no longer knew it as a worktree
@@ -261,17 +301,20 @@ def cmd_check(a):
 def cmd_review(a):
     found = problems()
     if found:
+        log_attempt(a, "unavailable")
         unavailable("; ".join(found))
     root = repo_root()
     os.chdir(root)
     snap = snapshot()
     intent = f"The Author's stated intent: {a.intent}\n\n" if a.intent else ""
     if a.target == "diff":
-        base = git("rev-parse", "HEAD") if a.base == "HEAD" else git("merge-base", a.base, "HEAD")
+        base = diff_base(a)
         stats, diff = diff_stats(base, snap)
         if not stats["files"]:
+            log_attempt(a, "skipped", snap, base, stats)
             out({"status": "skipped", "reason": "no changes to review"}, EXIT_SKIPPED)
         if a.auto and (not stats["code_files"] or stats["code_lines"] < MIN_CODE_LINES):
+            log_attempt(a, "skipped", snap, base, stats)
             out({"status": "skipped", "reason": f"below the auto threshold: {stats['code_lines']} changed code "
                  f"lines in {len(stats['code_files'])} code files (needs {MIN_CODE_LINES})", **stats}, EXIT_SKIPPED)
         prompt = (ROLE + f"The Review Target is a Diff: `git diff {base} HEAD` in your working directory (HEAD is "
@@ -296,16 +339,97 @@ def cmd_review(a):
     answer, error = run_muse(root, run, 1, prompt, FINDINGS_SCHEMA, meta)
     if error:
         json.dump(meta, open(os.path.join(run, "run.json"), "w"), indent=2)
+        log_attempt(a, "unavailable", snap, base, stats, run)
         unavailable(error, run=run)
     findings = [dict(f, id=i) for i, f in enumerate(answer.get("findings", []), 1)]
     meta["findings"] = findings
     json.dump(meta, open(os.path.join(run, "run.json"), "w"), indent=2)
+    log_attempt(a, "reviewed", snap, base, stats, run)
     out({"status": "ok", "run": run, "target": a.target, "snapshot": snap, "base": base, **stats,
          "findings": [dict(f, blocking=f.get("severity") not in ADVISORY) for f in findings
                       if f.get("severity") != "nit"],
          "nits_dropped": sum(f.get("severity") == "nit" for f in findings),
          "seconds": round(time.time() - meta["started"]), **({"warnings": meta["warnings"]} if "warnings" in meta
                                                               else {})})
+
+
+def default_base():
+    try:
+        return git("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD") or "main"
+    except subprocess.CalledProcessError:
+        return "main"
+
+
+def tree_exists(tree):
+    return subprocess.run(["git", "cat-file", "-e", tree + "^{tree}"], capture_output=True).returncode == 0
+
+
+def read_ledger():
+    entries = []
+    try:
+        with open(ledger_path(), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(e, dict) and isinstance(e.get("tree"), str) and isinstance(e.get("base_tree"), str):
+                    entries.append(e)
+    except OSError:
+        pass
+    return entries
+
+
+def cmd_gate(a):
+    """Is the branch's Diff Covered? Start at the merge-base tree and follow Ledger entries (any status) whose
+    base_tree is the current tree, to the chain end that leaves the fewest uncovered code lines. Plumbing only."""
+    base = a.base or default_base()
+    result = {"required": False, "code_lines": 0, "chain_end": None, "base": base}
+    try:
+        git("rev-parse", "--verify", "-q", "HEAD^{commit}")
+        start_commit = None
+        for ref in (base, "origin/" + base):
+            try:
+                start_commit = git("merge-base", ref, "HEAD")
+                break
+            except subprocess.CalledProcessError:
+                continue
+        if start_commit is None:
+            out({**result, "reason": f"no merge base with {base}"})
+        start = git("rev-parse", start_commit + "^{tree}")
+        candidate = git("rev-parse", "HEAD^{tree}")
+        remaining = {}
+
+        def left(tree):
+            if tree not in remaining:
+                remaining[tree] = 0 if tree == candidate else diff_stats(tree, candidate)[0]["code_lines"]
+            return remaining[tree]
+
+        total = left(start)
+        if total < MIN_CODE_LINES:
+            out({**result, "reason": f"below the threshold: {total} changed code lines", "code_lines": total,
+                 "chain_end": start})
+        links = {}
+        for e in read_ledger():
+            links.setdefault(e["base_tree"], set()).add(e["tree"])
+        best, seen, todo = start, {start}, [start]
+        while todo and len(seen) < 500 and left(best) >= MIN_CODE_LINES:
+            node = todo.pop()
+            for nxt in links.get(node, ()):
+                if nxt in seen or not tree_exists(nxt):
+                    continue
+                seen.add(nxt)
+                todo.append(nxt)
+                if left(nxt) < left(best):
+                    best = nxt
+        n = left(best)
+        out({**result, "required": n >= MIN_CODE_LINES, "code_lines": n, "chain_end": best,
+             "reason": (f"Covered: {n} uncovered code lines of {total}" if n < MIN_CODE_LINES
+                        else f"{n} changed code lines no Review covers")})
+    except subprocess.CalledProcessError:
+        out({**result, "reason": "not a git repository with a commit, or git failed"})
+    except Exception as e:  # fail open
+        out({**result, "reason": f"internal error: {type(e).__name__}: {e}"})
 
 
 def cmd_rebut(a):
@@ -363,6 +487,7 @@ def main():
     d = rs.add_parser("diff", parents=[common]); d.add_argument("--base", default="HEAD")
     d.add_argument("--auto", action="store_true"); d.set_defaults(fn=cmd_review)
     pl = rs.add_parser("plan", parents=[common]); pl.add_argument("plan"); pl.set_defaults(fn=cmd_review)
+    p = sub.add_parser("gate"); p.add_argument("--base"); p.set_defaults(fn=cmd_gate)
     p = sub.add_parser("rebut"); p.add_argument("run"); p.add_argument("rebuttal"); p.set_defaults(fn=cmd_rebut)
     a = ap.parse_args()
     for path in ("plan", "run", "rebuttal"):

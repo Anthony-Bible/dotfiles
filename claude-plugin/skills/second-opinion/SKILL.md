@@ -20,6 +20,13 @@ unavailable, exit 4 means skipped.
 - **Before a commit or PR you are about to make:** run `review diff --auto` (use `--base <default branch>`
   for a PR). `--auto` skips the review (exit 4) when the Diff has no code files or fewer than 20 changed
   code lines. That skip is final. Commit without mentioning it.
+- **PR Gate:** `gh pr create` is refused while the branch's Diff (from the merge base) is not Covered: the
+  Ledger (`<git-common-dir>/second-opinion/ledger.jsonl`, one line per `review diff` attempt, skips and
+  unavailable included) must chain from the merge base to HEAD's tree, leaving fewer than 20 changed code
+  lines. Per-commit Reviews (`--base HEAD`) add up, so a Review of each commit passes with no further one.
+  When refused, run one whole-branch `review diff --auto --base <PR base branch> --intent …`.
+  `second-opinion.py gate [--base REF]` shows the verdict. Only the user may say to prefix `REVIEW_OK=1`.
+  `git commit` is never gated.
 - **When the user asks:** run `review diff` (no `--auto`) or `review plan <file>`. A Plan Review never
   runs unless the user asks for one.
 - Run one Review at a time. Never start a Review from inside another Review.
