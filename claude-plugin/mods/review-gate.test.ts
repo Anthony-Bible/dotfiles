@@ -127,14 +127,28 @@ describe('which lines the PR Gate looks at', () => {
     expect(reviewChecks('gh pr create -H a')[0]).toEqual({ kind: 'check', head: 'a', dirs: [undefined] })
   })
 
-  test('a command before gh pr create that can move HEAD marks the check, and only such a command does', () => {
+  test('a command before gh pr create that can move HEAD or the judged branch marks the check', () => {
+    const marks = (line: string) => reviewChecks(line)[0]?.movesHead
     for (const mover of ['git commit -m w', 'git commit -am w', 'git -C ../x commit -m w', 'git -c a=b merge main', 'git rebase main', 'git cherry-pick abc',
-      'git revert HEAD', 'git am p.patch', 'git pull', 'git reset --hard x', 'git checkout feat', 'git switch feat', 'git stash pop', 'git stash apply',
-      'sudo git commit -m w', 'git add x && git commit -m w && git push'])
-      expect(reviewChecks(`${mover} && gh pr create --fill`)[0]?.movesHead, mover).toBe(true)
-    for (const calm of ['git push', 'git status', 'git add x', 'git stash', 'git stash list', 'git log', 'echo "git commit"', 'git fetch'])
-      expect(reviewChecks(`${calm}; gh pr create --fill`)[0]?.movesHead, calm).toBeUndefined()
-    expect(reviewChecks('gh pr create --fill; git commit -m w')[0]?.movesHead).toBeUndefined()
+      'git revert HEAD', 'git am p.patch', 'git pull', 'git reset --hard x', 'git reset HEAD f.go', 'git checkout feat', 'git switch feat',
+      'sudo git commit -m w', 'git add x && git commit -m w && git push', 'git branch -f feat main', 'git branch --force feat main', 'git branch -m old new',
+      'git branch -M new', 'git branch -C a b', 'git update-ref refs/heads/feat abc'])
+      expect(marks(`${mover} && gh pr create --fill`), mover).toBe(true)
+    // the judged refs must not move on the same line: with --head, a push or fetch that writes a ref does
+    for (const mover of ['git push origin HEAD:refs/heads/feat/y', 'git push origin +abc:feat', 'git fetch origin feat:feat', 'git fetch origin +a:b'])
+      expect(marks(`${mover} && gh pr create --head feat/y`), mover).toBe(true)
+  })
+
+  test('commands that leave the judged refs alone do not mark the check', () => {
+    const marks = (line: string) => reviewChecks(line)[0]?.movesHead
+    for (const calm of ['git push', 'git push -u origin HEAD', 'git push origin feat', 'git push git@github.com:o/r.git feat', 'git status', 'git add x', 'git stash',
+      'git stash list', 'git stash pop', 'git stash apply', 'git log', 'echo "git commit"', 'git fetch', 'git fetch origin', 'git branch', 'git branch -d x',
+      'git branch -c a b', 'git checkout -- f.go', 'git checkout feat -- f.go', 'git reset -- f.go', 'git reset HEAD -- f.go', 'git restore f.go'])
+      expect(marks(`${calm}; gh pr create --fill`), calm).toBeUndefined()
+    for (const calm of ['git push origin feat', 'git push -u origin HEAD', 'git fetch origin', 'git push git@github.com:o/r.git feat'])
+      expect(marks(`${calm} && gh pr create --head feat`), calm).toBeUndefined()
+    expect(marks('git push origin HEAD:refs/heads/y && gh pr create --fill')).toBeUndefined() // no --head: the gate judges HEAD, which a push leaves alone
+    expect(marks('gh pr create --fill; git commit -m w')).toBeUndefined()
     expect(reviewChecks(`git commit -m w && ${REVIEW_HATCH} gh pr create`)).toEqual([])
   })
 

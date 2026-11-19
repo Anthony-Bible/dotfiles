@@ -368,10 +368,10 @@ def ref_exists(ref):
 
 
 def resolve_head(name):
-    """The ref a PR's head names: the local branch, else the remote one; None for `owner:branch` or an unknown ref."""
-    if ":" in name or name.startswith("-"):
-        return None
-    return next((r for r in (name, "origin/" + name) if ref_exists(r)), None)
+    """The ref a PR's head names: the local branch, else the remote one; `owner:branch` names its branch. None when
+    neither exists."""
+    name = name.split(":", 1)[-1]
+    return next((r for r in (name, "origin/" + name) if name and ref_exists(r)), None)
 
 
 def resolve_base(name):
@@ -447,10 +447,10 @@ class Trees:
                 found[prefix + name] = sha
         return found
 
-    def restrict(self, trees, extra=()):
-        """Fix `rel` to the code paths of these trees and of `extra` (paths some commit touched on the way)."""
+    def restrict(self, trees):
+        """Fix `rel` to the code paths of these trees."""
         self.rel, self.dirs, self.sums = set(), {""}, {}
-        paths = [p for t in trees for p in (self.code_paths(t) or {})] + [p for p in extra if is_code(p)]
+        paths = [p for t in trees for p in (self.code_paths(t) or {})]
         for path in paths:
             self.rel.add(path)
             parts = path.split("/")
@@ -555,11 +555,13 @@ def cmd_gate(a):
         if base is None:
             out({**result, "reason": f"no base branch found ({a.base or 'no origin/HEAD, origin/main, origin/master, main or master'})"})
         result["base"] = base
-        tip = "HEAD"
+        tip, note = "HEAD", ""
         if a.head:
+            if a.head.startswith("-"):
+                out({**result, "head": a.head, "reason": f"head {a.head} is not a branch name: not judged"})
             tip = resolve_head(a.head)
-            if tip is None:
-                out({**result, "head": a.head, "reason": f"head {a.head} is not a branch this checkout has: not judged"})
+            if tip is None:  # e.g. pushed by this very command line, so it does not exist yet
+                tip, note = "HEAD", f"head {a.head} is not a branch this checkout has (yet): judged HEAD instead. "
             result["head"] = tip
         try:
             mb = git("merge-base", base, tip)
@@ -574,12 +576,10 @@ def cmd_gate(a):
                 remaining[tree] = trees.code_lines(tree, candidate)
             return remaining[tree]
 
-        # Paths a commit of the branch touched count too: a rename chain must not hide an edit to its middle path.
-        touched = git("log", "--format=", "--name-only", "-z", "--no-renames", f"{mb}..{tip}" if mb else tip)
-        trees.restrict([start, candidate], [x for x in touched.split("\0") if x])
+        trees.restrict([start, candidate])
         total = left(start)
         if total < MIN_CODE_LINES:
-            out({**result, "reason": f"below the threshold: {total} changed code lines", "code_lines": total,
+            out({**result, "reason": note + f"below the threshold: {total} changed code lines", "code_lines": total,
                  "chain_end": start})
         by_key, recency = {}, {}
         for n, e in enumerate(read_ledger()):
@@ -614,8 +614,8 @@ def cmd_gate(a):
                 continue
         n = left(best)
         out({**result, "required": n >= MIN_CODE_LINES, "code_lines": n, "chain_end": best,
-             "reason": (f"Covered: {n} uncovered code lines of {total}" if n < MIN_CODE_LINES
-                        else f"{n} changed code lines no Review covers")})
+             "reason": note + (f"Covered: {n} uncovered code lines of {total}" if n < MIN_CODE_LINES
+                                  else f"{n} changed code lines no Review covers")})
     except subprocess.CalledProcessError:
         out({**result, "reason": "not a git repository with a commit, or git failed"})
     except Exception as e:  # fail open

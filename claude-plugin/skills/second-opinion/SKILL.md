@@ -26,7 +26,11 @@ unavailable, exit 4 means skipped.
   lines. Per-commit Reviews (`--base HEAD`) add up, so a Review of each commit passes with no further one.
   When refused, run one whole-branch `review diff --auto --base <PR base branch> --intent …`.
   `second-opinion.py gate [--base REF]` shows the verdict. Only the user may say to prefix `REVIEW_OK=1`.
-  `git commit` is never gated.
+  `git commit` is never gated. A commit, checkout or ref move earlier on the same `gh pr create` line is refused
+  too (the gate would judge the old HEAD): run it in its own Bash call first. `--head` judges that branch, or HEAD
+  when it does not exist yet.
+  Accepted gaps (links match code by content, not path): swapped contents between paths, and a rename chain around
+  an unreviewed edit (reviewed a.go->b.go, unreviewed edit to b.go, reviewed b.go->c.go) both count as Covered.
 - **When the user asks:** run `review diff` (no `--auto`) or `review plan <file>`. A Plan Review never
   runs unless the user asks for one.
 - Run one Review at a time. Never start a Review from inside another Review.

@@ -52,10 +52,16 @@ const headOf = (line: string, nth = 0): string | undefined => flagValue(line, nt
 
 /** Git subcommands that move HEAD or the checked-out branch. */
 const HEAD_MOVERS = new Set(['commit', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull', 'reset', 'checkout', 'switch'])
+/** Those that, given `--` and a path, only touch files. */
+const PATH_FORMS = new Set(['checkout', 'reset'])
 const GIT_VALUE_FLAGS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
 
-/** Whether a git command before word `at` can move HEAD (the hook runs before the line, so the gate would see the old one). */
-const movesHead = (line: string, ws: readonly Word[], at: number): boolean => {
+/**
+ * Whether a git command before word `at` can move what the gate would judge: HEAD, the checked-out branch, a
+ * branch ref (`branch -f`, `update-ref`), or, when the PR names its head, a ref a push or fetch writes (a refspec
+ * with `:`). The hook runs before the line does, so the gate would see the refs as they are now.
+ */
+const movesHead = (line: string, ws: readonly Word[], at: number, namesHead: boolean): boolean => {
   for (let i = 0; i < at; i++) {
     const w = ws[i] as Word
     if (!w.isCommand || unquoted(line, w).replace(/^.*\//, '') !== 'git') continue
@@ -67,8 +73,12 @@ const movesHead = (line: string, ws: readonly Word[], at: number): boolean => {
     for (let t = arg(j); t !== undefined && t.startsWith('-'); t = arg(j)) j += GIT_VALUE_FLAGS.has(t) ? 2 : 1
     const sub = arg(j)
     if (sub === undefined) continue
-    if (HEAD_MOVERS.has(sub)) return true
-    if (sub === 'stash' && ['pop', 'apply'].includes(arg(j + 1) ?? '')) return true
+    const args: string[] = []
+    for (let k = j + 1; arg(k) !== undefined; k++) args.push(arg(k) as string)
+    if (PATH_FORMS.has(sub) && args.includes('--')) continue
+    if (HEAD_MOVERS.has(sub) || sub === 'update-ref') return true
+    if (sub === 'branch' && args.some(a => a === '--force' || /^-[A-Za-z]*[fmMC]/.test(a) && !a.startsWith('--'))) return true
+    if (namesHead && (sub === 'push' || sub === 'fetch') && args.some(a => !a.startsWith('-') && a.includes(':') && !a.includes('@') && !a.includes('://'))) return true
   }
   return false
 }
@@ -110,7 +120,7 @@ export const reviewChecks = (line: string): GateCheck[] => {
             kind: 'check' as const,
             base: baseOf(line, nth),
             ...(headOf(line, nth) ? { head: headOf(line, nth) } : {}),
-            ...(movesHead(line, ws, at) ? { movesHead: true as const } : {}),
+            ...(movesHead(line, ws, at, headOf(line, nth) !== undefined) ? { movesHead: true as const } : {}),
             dirs: createDirsOf(line, nth).filter((d): d is string | undefined => d !== null),
           },
         ],

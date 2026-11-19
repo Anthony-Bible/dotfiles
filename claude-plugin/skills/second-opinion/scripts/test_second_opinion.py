@@ -423,7 +423,7 @@ class Gate(Repo):
         self.assertLess(time.monotonic() - started, 3.0)
         self.assertEqual((result["required"], result["code_lines"]), (True, 25), result)
 
-    def test_a_rename_chain_cannot_hide_an_edit_to_the_middle_path(self):
+    def test_a_rename_chain_over_an_unreviewed_edit_is_an_accepted_gap(self):
         self.commit(30, "a.go")
         self.git("checkout", "-q", "main")
         self.git("merge", "-q", "--ff-only", "feat")
@@ -441,7 +441,24 @@ class Gate(Repo):
         self.git("commit", "-q", "-m", "rename again")
         self.ledger(before, self.tree())
         result = self.gate()
-        self.assertTrue(result["required"], result)
+        # Accepted gap, like swapped contents: the key sums blobs over the code paths of the merge-base and HEAD only,
+        # so the middle path b.go is invisible and the two reviewed renames link. Tracking every path a commit
+        # touched would instead block real work (see the debug-file test below).
+        self.assertFalse(result["required"], result)
+
+    def test_a_scratch_file_added_and_removed_by_a_reviewed_commit_stays_covered(self):
+        self.ledger(*self.commit(30, "real1.go"))
+        self.commit(30, "dbg.go")  # unreviewed, later removed again
+        before = self.tree()
+        for n in os.listdir(self.repo):
+            if n.endswith("dbg.go"):
+                self.git("rm", "-q", n)
+        with open(os.path.join(self.repo, "real2.go"), "w") as f:
+            f.write("".join(f"r {n}\n" for n in range(30)))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "swap debug for real")
+        self.ledger(before, self.tree())
+        self.assertFalse(self.gate()["required"])
 
     def test_untracked_scratch_never_committed_still_covers(self):
         t = self.commit(30)
@@ -464,12 +481,25 @@ class Gate(Repo):
         self.git("checkout", "-q", "main")
         self.assertTrue(self.gate("--head", "only")["required"])
 
-    def test_an_owner_qualified_or_unknown_head_fails_open_with_a_reason(self):
+    def test_an_owner_qualified_head_names_its_branch(self):
         self.commit(30)
-        for ref in ("owner:feat", "nope", "--weird"):
-            result = self.gate(f"--head={ref}")
-            self.assertFalse(result["required"], ref)
-            self.assertIn("head", result["reason"], ref)
+        self.git("checkout", "-q", "main")
+        result = self.gate("--head", "someone:feat")
+        self.assertTrue(result["required"], result)
+        self.assertEqual(result["head"], "feat")
+
+    def test_an_unresolvable_head_judges_HEAD_and_says_so(self):
+        self.commit(30)
+        result = self.gate("--head", "not-pushed-yet")
+        self.assertTrue(result["required"], result)
+        self.assertIn("not-pushed-yet", result["reason"])
+        self.assertIn("judged HEAD", result["reason"])
+
+    def test_a_head_that_looks_like_a_flag_fails_open(self):
+        self.commit(30)
+        result = self.gate("--head=--weird")
+        self.assertFalse(result["required"])
+        self.assertIn("head", result["reason"])
 
     def test_a_reviewed_tree_stays_covered_after_an_abandoned_follow_up_review(self):
         t1 = self.commit(30)
