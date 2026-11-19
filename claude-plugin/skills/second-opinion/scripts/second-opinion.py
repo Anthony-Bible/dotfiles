@@ -46,7 +46,8 @@ import argparse, json, os, re, shutil, signal, subprocess, sys, tempfile, time, 
 LEDGER_STATUSES = ("reviewed", "skipped", "unavailable")
 EXIT_OK, EXIT_USAGE, EXIT_UNAVAILABLE, EXIT_SKIPPED = 0, 2, 3, 4
 MIN_CODE_LINES = 20
-MAX_ENDS = 25  # chain ends the gate measures against HEAD
+MAX_INNER = 15  # of those, trees a later entry builds on that are measured too
+MAX_ENDS = 100  # reachable trees the gate measures against HEAD (those with HEAD's code come first)
 PROMPT_CAP = 150_000
 NON_CODE_EXT = {".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
                 ".conf", ".csv", ".lock", ".sum", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf"}
@@ -564,23 +565,29 @@ def cmd_gate(a):
             if k is not None and trees.key(e["tree"]) is not None:
                 by_key.setdefault(k, set()).add(e["tree"])
                 recency[e["tree"]] = n
-        ends, seen, todo = {start}, {start}, [start]
+        seen, todo, depth = {start}, [start], {start: 0}
         while todo and len(seen) < 2000:
             node = todo.pop()
             fresh = [n for n in by_key.get(trees.key(node), ()) if n not in seen]
             for nxt in fresh:
                 seen.add(nxt)
                 todo.append(nxt)
-                ends.add(nxt)
-            if fresh:
-                ends.discard(node)
-        # Measure the ends that look like HEAD first, then the newest ones: a busy Ledger can have many ends.
-        order = sorted(ends, key=lambda t: (trees.key(t) != trees.key(candidate), -recency.get(t, -1)))
+                depth[nxt] = depth[node] + 1
+        # Any reachable tree may be the last one reviewed (a later entry can be an abandoned Review or another
+        # branch's): measure the ones with HEAD's code first, then chain ends (furthest along, then newest), then a few that later entries build on (an abandoned or other
+        # branch's Review can sit after the reviewed tree), capped.
+        same = trees.key(candidate)
+        leaf = {t: not any(n != t for n in by_key.get(trees.key(t), ())) for t in seen}
+        order = sorted(seen, key=lambda t: (trees.key(t) != same, not leaf[t], -depth[t], -recency.get(t, -1)))
+        inner = [t for t in order if not leaf[t] and trees.key(t) != same]
+        order = [t for t in order if leaf[t] or trees.key(t) == same] + inner[:MAX_INNER]
         best = start
         for t in order[:MAX_ENDS]:
             try:
                 if left(t) < left(best):
                     best = t
+                if left(best) == 0:
+                    break
             except subprocess.CalledProcessError:  # an object git cannot read: this end is unusable
                 continue
         n = left(best)

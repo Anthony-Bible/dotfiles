@@ -48,20 +48,28 @@ export const reviewGate = (line: string): { kind: 'pass' } | GateCheck => {
   return first ?? { kind: 'pass' }
 }
 
-/** Whether the command at word `at` carries the Hatch among the assignments and wrappers right before it. */
-const hatched = (ws: readonly Word[], at: number): boolean => {
+/** Whether the command at word `at` carries the Hatch among the assignments and wrappers of its own simple command. */
+const hatched = (line: string, ws: readonly Word[], at: number): boolean => {
+  if ((ws[at] as Word).startsCommand) return false // nothing before it belongs to this command
   for (let i = at - 1; i >= 0 && (ws[i] as Word).isCommand; i--) {
-    if ((ws[i] as Word).text === REVIEW_HATCH) return true
+    if (unquoted(line, ws[i] as Word) === REVIEW_HATCH) return true
     if ((ws[i] as Word).startsCommand) break
   }
   return false
+}
+
+/** A directory the PR was created from, with a leading `~` or `~/` resolved against `home`; null when it names another user's home (computed, so unknown). */
+export const expandHome = (dir: string | undefined, home: string): string | null | undefined => {
+  if (dir === undefined || !dir.startsWith('~')) return dir
+  if (dir === '~') return home
+  return dir.startsWith('~/') ? home + dir.slice(1) : null
 }
 
 /** Every pull request the line opens, each with its own base and directories; none when the line passes. */
 export const reviewChecks = (line: string): GateCheck[] => {
   const ws = words(line)
   return prCreates(line).flatMap(({ at }, nth) =>
-    hatched(ws, at)
+    hatched(line, ws, at)
       ? []
       : [
           {

@@ -73,7 +73,7 @@ import {
 import { bossToast, checkKey, failingCount, hpBar, initialBosses, newestBoss, onBossCheck, slayAward } from '../mods/boss'
 import { branchGuard, gitSteps, type Repo } from '../mods/branch'
 import { guard, rewriteNote } from '../mods/podman'
-import { reviewChecks, reviewVerdict } from '../mods/review-gate'
+import { expandHome, reviewChecks, reviewVerdict } from '../mods/review-gate'
 import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
 import {
   addressPrompt,
@@ -902,10 +902,11 @@ export const register: Register = on => {
         asked.add(key)
         try {
           if (deadline - (await $.clock.now()) <= 0) break checks
-          const home = dir?.startsWith('~')
+          const home = dir === '~' || dir?.startsWith('~/')
             ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'], { timeoutMs: Math.max(1, deadline - (await $.clock.now())) })).stdout
             : ''
-          const cwd = home ? home + (dir as string).slice(1) : dir
+          const cwd = expandHome(dir, home)
+          if (cwd === null) continue // another user's home is not ours to guess
           const left = deadline - (await $.clock.now())
           if (left <= 0) break checks
           const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {

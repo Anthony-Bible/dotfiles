@@ -403,6 +403,28 @@ class Gate(Repo):
         self.assertLess(time.monotonic() - started, 3.0)
         self.assertEqual((result["required"], result["code_lines"]), (True, 25), result)
 
+    def test_a_reviewed_tree_stays_covered_after_an_abandoned_follow_up_review(self):
+        t1 = self.commit(30)
+        self.ledger(*t1)
+        os.makedirs(os.path.join(self.repo, "tmp"), exist_ok=True)
+        with open(os.path.join(self.repo, "1-code.go"), "a") as f:
+            f.write("".join(f"more {i}\n" for i in range(40)))
+        self.git("add", "-A")
+        snap = self.git("write-tree")
+        self.git("reset", "-q", "--hard")
+        self.ledger(t1[1], snap)  # a pre-commit Review of work then thrown away
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
+
+    def test_a_stacked_branchs_review_does_not_uncover_the_base_branch(self):
+        t1 = self.commit(30)
+        self.ledger(*t1)
+        self.git("checkout", "-q", "-b", "stacked")
+        self.commit(40)
+        self.ledger(t1[1], self.tree())
+        self.git("checkout", "-q", "feat")
+        self.assertFalse(self.gate()["required"])
+
     def test_a_waiver_line_in_a_commit_message_does_not_bypass(self):
         self.commit(30)
         self.git("commit", "-q", "--allow-empty", "-m", "fix\n\nsecond-opinion waiver: the user accepted it")

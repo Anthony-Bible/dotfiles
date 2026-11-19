@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { REVIEW_HATCH, gateResult, reviewChecks, reviewVerdict, reviewGate } from './review-gate'
+import { REVIEW_HATCH, expandHome, gateResult, reviewChecks, reviewVerdict, reviewGate } from './review-gate'
 
 const rng = (seed: number) => () => {
   seed = (seed * 1103515245 + 12345) & 0x7fffffff
@@ -90,6 +90,28 @@ describe('which lines the PR Gate looks at', () => {
     expect(reviewChecks(`${REVIEW_HATCH} echo hi; gh pr create`)).toHaveLength(1)
     expect(reviewChecks(`export ${REVIEW_HATCH}; gh pr create`)).toHaveLength(1)
     expect(reviewChecks(`(${REVIEW_HATCH} gh pr create)`)).toEqual([])
+  })
+
+  test('a Hatch before an operator exempts nothing after it', () => {
+    for (const line of [`${REVIEW_HATCH}; gh pr create`, `${REVIEW_HATCH} && gh pr create`, `${REVIEW_HATCH} || gh pr create`, `${REVIEW_HATCH} | gh pr create`])
+      expect(reviewChecks(line)).toHaveLength(1)
+  })
+
+  test('a quoted Hatch exempts like a bare one', () => {
+    for (const line of ['REVIEW_OK="1" gh pr create', "REVIEW_OK='1' gh pr create", 'env "REVIEW_OK=1" gh pr create', "env 'REVIEW_OK=1' gh pr create", 'FOO=1 REVIEW_OK="1" gh pr create'])
+      expect(reviewChecks(line)).toEqual([])
+    for (const line of ['REVIEW_OK="0" gh pr create', 'REVIEW_OK="1"; gh pr create'])
+      expect(reviewChecks(line)).toHaveLength(1)
+  })
+
+  test('only ~ and ~/ expand to the home directory; ~user and plain paths are not guessed', () => {
+    expect(expandHome('~', '/h')).toBe('/h')
+    expect(expandHome('~/a/b', '/h')).toBe('/h/a/b')
+    expect(expandHome('/x/~y', '/h')).toBe('/x/~y')
+    expect(expandHome('rel', '/h')).toBe('rel')
+    expect(expandHome(undefined, '/h')).toBeUndefined()
+    expect(expandHome('~root/a', '/h')).toBeNull()
+    expect(expandHome('~+', '/h')).toBeNull()
   })
 
   test('help among create\'s own args is no creation, but a flag\'s value that looks like help is', () => {
