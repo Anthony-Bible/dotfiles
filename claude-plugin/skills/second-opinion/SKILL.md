@@ -42,6 +42,16 @@ Always pass `--intent`. The Reviewer judges correctness against what the change 
 Bash with a tool timeout of 600000 ms. The whole Review (the review turn plus the Rebuttal) has a 10-minute
 budget (`--timeout`). The default effort is `high`. Use `--effort xhigh` only when the user asks for depth.
 
+### Briefing the Reviewer
+
+- `--intent` states the goal, the acceptance criteria or the issue link, and constraints. It does not describe how the
+  code works or list what to probe: that anchors the Reviewer to the Author's design.
+- A Diff over about 400 code lines, or one about to become a PR: run at least one Review briefed only with the
+  issue or goal, with no design description. (`review diff` warns on stderr past 400 lines.)
+- Keep each Review small. Review per commit as you go (the Ledger chains them) rather than one huge Review at the end.
+- Review the spec or Plan itself (`review plan`) before building, asking what the user's commands or inputs can do
+  that the spec does not cover.
+
 **Exit 3 (unavailable):** muse is missing, has no credentials, errored or timed out. **Fail open.** Tell
 the user in one line (`second-opinion: Reviewer unavailable: <reason>`) and carry on with the commit. If
 the reason is a missing binary or missing credentials, tell the user which command to run:

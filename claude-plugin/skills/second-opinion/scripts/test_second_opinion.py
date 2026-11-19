@@ -41,6 +41,26 @@ class ReviewDiff(unittest.TestCase):
         with open(os.path.join(self.repo, path), "wb") as f:
             f.write(data)
 
+    def review_of(self, lines):
+        """(stdout JSON, stderr, run.json) of a Review of a Diff adding `lines` code lines."""
+        self.write("big.go", "".join(f"line {n}\n" for n in range(lines)).encode())
+        proc = subprocess.run([sys.executable, SCRIPT, "review", "diff", "--intent", "test"], cwd=self.repo,
+                              env=self.env, capture_output=True, text=True)
+        result = json.loads(proc.stdout)
+        return result, proc.stderr, json.load(open(os.path.join(result["run"], "run.json")))
+
+    def test_a_diff_over_the_large_limit_warns_on_stderr_and_is_flagged_in_run_json(self):
+        result, err, meta = self.review_of(401)
+        self.assertIn("per commit", err)
+        self.assertIs(meta.get("large_diff"), True)
+        self.assertEqual(result["status"], "ok")
+
+    def test_a_diff_at_the_large_limit_does_not(self):
+        result, err, meta = self.review_of(400)
+        self.assertNotIn("per commit", err)
+        self.assertNotIn("large_diff", meta)
+        self.assertEqual(result["status"], "ok")
+
     def review(self, *args):
         proc = subprocess.run([sys.executable, SCRIPT, "review", "diff", "--intent", "test", *args], cwd=self.repo,
                               env=self.env, capture_output=True, text=True)

@@ -46,6 +46,7 @@ import argparse, json, os, re, shutil, signal, subprocess, sys, tempfile, time, 
 LEDGER_STATUSES = ("reviewed", "skipped", "unavailable")
 EXIT_OK, EXIT_USAGE, EXIT_UNAVAILABLE, EXIT_SKIPPED = 0, 2, 3, 4
 MIN_CODE_LINES = 20
+LARGE_DIFF_LINES = 400  # a Review of more code lines than this earns a warning: review per commit instead
 MAX_INNER = 15  # of those, trees a later entry builds on that are measured too
 MAX_ENDS = 100  # reachable trees the gate measures against HEAD (those with HEAD's code come first)
 PROMPT_CAP = 150_000
@@ -339,6 +340,11 @@ def cmd_review(a):
                   "Plan is built as written.\n\nThe Plan:\n\n" + capped(plan, "Plan") + "\n")
     run, meta = new_run(root, a.target, a)
     meta.update(snapshot=snap, base=base, plan=a.plan if a.target == "plan" else None)
+    if a.target == "diff" and stats["code_lines"] > LARGE_DIFF_LINES:
+        meta["large_diff"] = True
+        print(f"second-opinion: this Diff has {stats['code_lines']} changed code lines (over {LARGE_DIFF_LINES}); "
+              "a Review this big finds little. Review per commit as you go: the Ledger chains the Reviews.",
+              file=sys.stderr)
     answer, error = run_muse(root, run, 1, prompt, FINDINGS_SCHEMA, meta)
     if error:
         json.dump(meta, open(os.path.join(run, "run.json"), "w"), indent=2)
