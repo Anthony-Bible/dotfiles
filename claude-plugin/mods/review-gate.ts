@@ -1,23 +1,20 @@
 // The PR Gate's pure half: which Bash lines open a pull request, what the second-opinion gate said about the
 // branch, and the refusal. Only `gh pr create` is gated, never `git commit`. No `$` here.
 
-import { createDirOf, isPrCreate, prCreates } from './mail'
-import { hasAssignment, words, type Word } from './shell'
+import { CREATE_VALUE_FLAGS, createDirsOf, prCreates } from './mail'
+import { words, type Word } from './shell'
 
 export type Judged = { kind: 'pass' } | { kind: 'deny'; reason: string }
 
-/** The Review Escape Hatch: an assignment of it anywhere in the line leaves the whole line alone. */
+/** The Review Escape Hatch: an assignment of it in a gh pr create's own prefix (`REVIEW_OK=1 gh pr create`,
+ *  `env REVIEW_OK=1 gh pr create`) exempts that command, and only that one. */
 export const REVIEW_HATCH = 'REVIEW_OK=1'
 
-/** What to ask the gate about: the PR's base branch if the line names one, and where the line runs it. */
-export type GateCheck = { kind: 'check'; base?: string; dir: string | null | undefined }
-
-/** gh pr create's flags that take a value: the word after one is that value, never a flag of its own. */
-const CREATE_VALUE_FLAGS = new Set(
-  ['-t', '--title', '-b', '--body', '-F', '--body-file', '-H', '--head', '-a', '--assignee', '-l', '--label'].concat([
-    ...['-m', '--milestone', '-p', '--project', '-r', '--reviewer', '-T', '--template', '-R', '--repo', '--attach', '--recover'],
-  ]),
-)
+/**
+ * What to ask the gate about: the PR's base branch if the line names one, and every directory it may run in
+ * (undefined is where the line starts). A directory the shell computes is not listed: the gate has no say there.
+ */
+export type GateCheck = { kind: 'check'; base?: string; dirs: (string | undefined)[] }
 
 const unquoted = (line: string, w: Word): string => line.slice(w.start, w.end).replace(/["']/g, '')
 
@@ -51,10 +48,29 @@ export const reviewGate = (line: string): { kind: 'pass' } | GateCheck => {
   return first ?? { kind: 'pass' }
 }
 
-/** Every pull request the line opens, each with its own base and directory; none when the line passes. */
+/** Whether the command at word `at` carries the Hatch among the assignments and wrappers right before it. */
+const hatched = (ws: readonly Word[], at: number): boolean => {
+  for (let i = at - 1; i >= 0 && (ws[i] as Word).isCommand; i--) {
+    if ((ws[i] as Word).text === REVIEW_HATCH) return true
+    if ((ws[i] as Word).startsCommand) break
+  }
+  return false
+}
+
+/** Every pull request the line opens, each with its own base and directories; none when the line passes. */
 export const reviewChecks = (line: string): GateCheck[] => {
-  if (!isPrCreate(line) || hasAssignment(words(line), REVIEW_HATCH)) return []
-  return prCreates(line).map((_, nth) => ({ kind: 'check' as const, base: baseOf(line, nth), dir: createDirOf(line, nth) }))
+  const ws = words(line)
+  return prCreates(line).flatMap(({ at }, nth) =>
+    hatched(ws, at)
+      ? []
+      : [
+          {
+            kind: 'check' as const,
+            base: baseOf(line, nth),
+            dirs: createDirsOf(line, nth).filter((d): d is string | undefined => d !== null),
+          },
+        ],
+  )
 }
 
 /** What the gate script printed, reduced to what the guard needs; undefined for anything that is not its JSON. */

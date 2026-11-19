@@ -302,6 +302,14 @@ describe('where gh pr create ran', () => {
     expect(createDirOf('cd - && gh pr create')).toBeNull()
     expect(createDirOf('cd "$DIR" && gh pr create')).toBeNull()
     expect(createDirOf('cd $(git rev-parse --show-toplevel)/x && gh pr create')).toBeNull()
+    // Sponsor Mail keeps one best directory: certain after `|| exit`, subshell and pipe cds change nothing
+    expect(createDirOf('cd x || exit 1; gh pr create')).toBe('x')
+    expect(createDirOf('cd x || return; gh pr create')).toBe('x')
+    expect(createDirOf('cd x || true; gh pr create')).toBeNull()
+    expect(createDirOf('cd x || true; cd /abs; gh pr create')).toBe('/abs')
+    expect(createDirOf('(cd x; gh pr create); gh pr create', 1)).toBeUndefined()
+    expect(createDirOf('cd x | gh pr create')).toBeUndefined()
+    expect(createDirOf('cd x & gh pr create')).toBeUndefined()
   })
 })
 

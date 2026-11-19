@@ -46,6 +46,7 @@ import argparse, json, os, re, shutil, signal, subprocess, sys, tempfile, time, 
 LEDGER_STATUSES = ("reviewed", "skipped", "unavailable")
 EXIT_OK, EXIT_USAGE, EXIT_UNAVAILABLE, EXIT_SKIPPED = 0, 2, 3, 4
 MIN_CODE_LINES = 20
+MAX_ENDS = 25  # chain ends the gate measures against HEAD
 PROMPT_CAP = 150_000
 NON_CODE_EXT = {".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
                 ".conf", ".csv", ".lock", ".sum", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf"}
@@ -373,15 +374,20 @@ def resolve_base(name):
     return next((r for r in ("origin/main", "origin/master", "main", "master") if ref_exists(r)), None)
 
 
+SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+
+
 class Trees:
-    """What the gate knows about trees, each worked out once: a tree's code fingerprint (path -> blob of every code
-    file) and whether a blob is UTF-8 (diff_stats counts a code file that is not as no code, so the gate must too).
-    Objects are read through one long-lived `cat-file --batch`, and a subtree shared by many snapshots is walked
-    once, so the cost follows the distinct trees and not the Ledger's length. A blob is read only when two trees
-    differ at its path."""
+    """What the gate knows about trees, each worked out once. A tree's key is an order-independent sum of the
+    blob ids of its code files, restricted to the paths in `rel` (the code paths of the start tree and of HEAD:
+    a path in neither cannot affect the PR diff, so untracked scratch files never break a link). The key ignores
+    paths, so a pure rename still links; the cost is that swapping two files' contents keys the same, an accepted
+    false link. Objects come through one long-lived `cat-file --batch`; a subtree shared by many snapshots is
+    summed once per prefix, so the cost follows the distinct subtrees and not the Ledger's length.
+    A missing tree or blob anywhere makes the key None."""
 
     def __init__(self):
-        self.subs, self.bad, self.reader = {}, {}, None
+        self.parsed, self.sums, self.blobs, self.reader, self.rel, self.dirs = {}, {}, {}, None, set(), {""}
 
     def read(self, sha, kind):
         """The object's bytes, or None when it is missing or not of that kind."""
@@ -396,63 +402,102 @@ class Trees:
         data = self.reader.stdout.read(int(header[2]) + 1)[:-1]
         return data if header[1].decode() == kind else None
 
-    def fingerprint(self, tree):
-        """{path: blob} of the code files under the tree; None when the tree is not in the repository."""
-        if tree not in self.subs:
-            data = self.read(tree, "tree")
+    def entries(self, tree):
+        """[(mode, name, sha)] of a tree object; None when it is missing."""
+        if tree not in self.parsed:
+            data = self.read(tree, "tree") if SHA_RE.match(tree) else None
             found = None
             if data is not None:
-                found, width, at = {}, len(tree) // 2, 0
+                found, width, at = [], len(tree) // 2, 0
                 while at < len(data):
                     nul = data.index(b"\0", at)
                     mode, _, name = data[at:nul].partition(b" ")
-                    sha = data[nul + 1:nul + 1 + width].hex()
+                    found.append((mode, name.decode("utf-8", "replace"), data[nul + 1:nul + 1 + width].hex()))
                     at = nul + 1 + width
-                    name = name.decode("utf-8", "replace")
-                    if mode == b"40000":
-                        for path, blob in (self.fingerprint(sha) or {}).items():
-                            found[name + "/" + path] = blob
-                    elif mode != b"160000" and is_code(name):
-                        found[name] = sha
-            self.subs[tree] = found
-        return self.subs[tree]
+            self.parsed[tree] = found
+        return self.parsed[tree]
 
-    def not_utf8(self, blob):
-        if blob not in self.bad:
-            data = self.read(blob, "blob")
-            try:
-                if data is not None:
-                    data.decode("utf-8")
-                self.bad[blob] = False
-            except UnicodeDecodeError:
-                self.bad[blob] = True
-        return self.bad[blob]
+    def code_paths(self, tree, prefix=""):
+        """{path: blob} of every code file under the tree (gitlinks skipped); None when anything is missing."""
+        ents = self.entries(tree)
+        if ents is None:
+            return None
+        found = {}
+        for mode, name, sha in ents:
+            if mode == b"40000":
+                sub = self.code_paths(sha, prefix + name + "/")
+                if sub is None:
+                    return None
+                found.update(sub)
+            elif mode != b"160000" and is_code(name):
+                found[prefix + name] = sha
+        return found
 
-    def same_code(self, one, other):
-        """Do the two trees differ by no code, as the gate counts it? True when every code file that differs has a
-        side that is not UTF-8."""
-        a, b = self.fingerprint(one), self.fingerprint(other)
-        if a is None or b is None:
-            return False
-        if a == b:
-            return True
-        differing = {p for p, _ in a.items() ^ b.items()}
-        return all((p in a and self.not_utf8(a[p])) or (p in b and self.not_utf8(b[p])) for p in differing)
+    def restrict(self, trees):
+        """Fix `rel` to the code paths of these trees."""
+        self.rel, self.dirs, self.sums = set(), {""}, {}
+        for t in trees:
+            for path in self.code_paths(t) or {}:
+                self.rel.add(path)
+                parts = path.split("/")
+                for i in range(1, len(parts)):
+                    self.dirs.add("/".join(parts[:i]) + "/")
+
+    def blob_ok(self, sha):
+        if sha not in self.blobs:
+            self.blobs[sha] = self.read(sha, "blob") is not None
+        return self.blobs[sha]
+
+    def key(self, tree, prefix=""):
+        """The tree's key (an int), or None when it, or any subtree or blob it names, is missing."""
+        memo = (tree, prefix)
+        if memo not in self.sums:
+            ents = self.entries(tree)
+            total = None if ents is None else 0
+            for mode, name, sha in ents or []:
+                path = prefix + name
+                if mode == b"40000":
+                    if path + "/" not in self.dirs:  # holds no relevant path, but must exist
+                        total = None if self.entries(sha) is None else total
+                        if total is None:
+                            break
+                        continue
+                    sub = self.key(sha, path + "/")
+                    total = None if sub is None else total + sub
+                elif mode != b"160000" and path in self.rel:
+                    total = total + int(sha, 16) if self.blob_ok(sha) else None
+                if total is None:
+                    break
+            self.sums[memo] = total
+        return self.sums[memo]
 
     def code_lines(self, old, new):
         """Changed code lines between two trees: `git diff --numstat` with the is_code rules and the binary rule of
-        diff_stats, minus the code files that are not UTF-8 on either side (which diff_stats leaves out)."""
+        diff_stats, gitlinks (submodule bumps) left out, and only paths in `rel` (a path in neither the start tree
+        nor HEAD, such as an untracked scratch file in a snapshot, is not part of the PR diff). A non-UTF-8 text file that diff_stats skips is counted
+        here, so the gate can only over-count (deny), never under-count."""
         if old == new:
             return 0
-        a, b = self.fingerprint(old) or {}, self.fingerprint(new) or {}
+        fields = subprocess.run(["git", "diff", "--raw", "--numstat", "-z", old, new], capture_output=True,
+                                check=True).stdout.split(b"\0")
+        gitlinks, i = set(), 0
+        while i < len(fields) and fields[i].startswith(b":"):  # the raw records come first
+            meta = fields[i].split()
+            paths = 2 if meta[-1][:1] in (b"R", b"C") else 1
+            if b"160000" in meta[:2]:
+                gitlinks.update(p.decode("utf-8", "replace") for p in fields[i + 1:i + 1 + paths])
+            i += 1 + paths
         total = 0
-        for line in git("diff", "--numstat", old, new).splitlines():
-            added, deleted, path = line.split("\t", 2)
-            if not is_code(path) or added == "-":
-                continue
-            if any(p.get(path) and self.not_utf8(p[path]) for p in (a, b)):
-                continue
-            total += int(added) + int(deleted)
+        while i < len(fields) and fields[i]:
+            added, deleted, path = fields[i].decode("utf-8", "replace").split("\t", 2)
+            i += 1
+            old_path = None
+            if path == "":  # a rename or copy: the old and the new path follow
+                old_path, path = (f.decode("utf-8", "replace") for f in fields[i:i + 2])
+                i += 2
+            if (is_code(path) and added != "-" and path not in gitlinks
+                    and (path in self.rel or old_path in self.rel)):
+                total += int(added) + int(deleted)
         return total
 
     def close(self):
@@ -470,19 +515,24 @@ def read_ledger():
                     e = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if (isinstance(e, dict) and isinstance(e.get("tree"), str) and isinstance(e.get("base_tree"), str)
-                        and e.get("status") in LEDGER_STATUSES):
+                if (isinstance(e, dict) and e.get("status") in LEDGER_STATUSES
+                        and all(isinstance(e.get(k), str) and SHA_RE.match(e[k]) for k in ("tree", "base_tree"))):
                     entries.append(e)
     except OSError:
         pass
     return entries
 
 
+def empty_tree():
+    return subprocess.run(["git", "hash-object", "-t", "tree", "--stdin"], input=b"", capture_output=True,
+                          check=True).stdout.decode().strip()
+
+
 def cmd_gate(a):
-    """Is the branch's Diff Covered? Start at the merge-base tree and follow Ledger entries whose base_tree is the
-    current tree, or differs from it by no code (a Review snapshots the working tree, so untracked scratch files
-    ride along in one entry's tree but not in the commit the next entry is based on), to the chain end that leaves
-    the fewest uncovered code lines. Plumbing only: never writes."""
+    """Is the branch's Diff Covered? Start at the merge-base tree (the empty tree on an orphan branch) and follow
+    Ledger entries whose base_tree has the current tree's code (a Review snapshots the working tree, so untracked
+    scratch files ride along in one entry's tree but not in the commit the next entry is based on), to the chain end
+    that leaves the fewest uncovered code lines. Plumbing only: never writes."""
     result = {"required": False, "code_lines": 0, "chain_end": None, "base": a.base}
     trees = Trees()
     try:
@@ -491,8 +541,10 @@ def cmd_gate(a):
         if base is None:
             out({**result, "reason": f"no base branch found ({a.base or 'no origin/HEAD, origin/main, origin/master, main or master'})"})
         result["base"] = base
-        start_commit = git("merge-base", base, "HEAD")
-        start = git("rev-parse", start_commit + "^{tree}")
+        try:
+            start = git("rev-parse", git("merge-base", base, "HEAD") + "^{tree}")
+        except subprocess.CalledProcessError:  # no common history: everything on the branch is new
+            start = empty_tree()
         candidate = git("rev-parse", "HEAD^{tree}")
         remaining = {}
 
@@ -501,28 +553,36 @@ def cmd_gate(a):
                 remaining[tree] = trees.code_lines(tree, candidate)
             return remaining[tree]
 
+        trees.restrict([start, candidate])
         total = left(start)
         if total < MIN_CODE_LINES:
             out({**result, "reason": f"below the threshold: {total} changed code lines", "code_lines": total,
                  "chain_end": start})
-        by_base = {}
-        for e in read_ledger():
-            by_base.setdefault(e["base_tree"], set()).add(e["tree"])
-        # Fingerprint each distinct base_tree once; the ones that are not in this repository drop out.
-        by_base = {bt: ts for bt, ts in by_base.items() if trees.fingerprint(bt) is not None}
-        best, seen, todo = start, {start}, [start]
+        by_key, recency = {}, {}
+        for n, e in enumerate(read_ledger()):
+            k = trees.key(e["base_tree"])
+            if k is not None and trees.key(e["tree"]) is not None:
+                by_key.setdefault(k, set()).add(e["tree"])
+                recency[e["tree"]] = n
+        ends, seen, todo = {start}, {start}, [start]
         while todo and len(seen) < 2000:
             node = todo.pop()
-            for bt, nexts in by_base.items():
-                if bt != node and not trees.same_code(node, bt):
-                    continue
-                for nxt in nexts:
-                    if nxt in seen or trees.fingerprint(nxt) is None:
-                        continue
-                    seen.add(nxt)
-                    todo.append(nxt)
-                    if left(nxt) < left(best):
-                        best = nxt
+            fresh = [n for n in by_key.get(trees.key(node), ()) if n not in seen]
+            for nxt in fresh:
+                seen.add(nxt)
+                todo.append(nxt)
+                ends.add(nxt)
+            if fresh:
+                ends.discard(node)
+        # Measure the ends that look like HEAD first, then the newest ones: a busy Ledger can have many ends.
+        order = sorted(ends, key=lambda t: (trees.key(t) != trees.key(candidate), -recency.get(t, -1)))
+        best = start
+        for t in order[:MAX_ENDS]:
+            try:
+                if left(t) < left(best):
+                    best = t
+            except subprocess.CalledProcessError:  # an object git cannot read: this end is unusable
+                continue
         n = left(best)
         out({**result, "required": n >= MIN_CODE_LINES, "code_lines": n, "chain_end": best,
              "reason": (f"Covered: {n} uncovered code lines of {total}" if n < MIN_CODE_LINES

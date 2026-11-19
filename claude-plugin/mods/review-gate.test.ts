@@ -28,31 +28,75 @@ describe('which lines the PR Gate looks at', () => {
     }
   })
 
-  test('the directory a cd moved to rides along, and a computed one is null', () => {
-    expect(reviewGate('gh pr create -B main')).toEqual({ kind: 'check', base: 'main', dir: undefined })
-    expect(reviewGate('cd x && gh pr create')).toEqual({ kind: 'check', base: undefined, dir: 'x' })
-    expect(reviewGate('cd "$DIR" && gh pr create')).toEqual({ kind: 'check', base: undefined, dir: null })
+  test('the directories a cd moved to ride along, and a computed one is left out', () => {
+    expect(reviewGate('gh pr create -B main')).toEqual({ kind: 'check', base: 'main', dirs: [undefined] })
+    expect(reviewGate('cd x && gh pr create')).toEqual({ kind: 'check', base: undefined, dirs: ['x'] })
+    expect(reviewGate('cd "$DIR" && gh pr create')).toEqual({ kind: 'check', base: undefined, dirs: [] })
   })
 
-  test('a cd followed by || may not have happened: the directory is unknown, so the gate stays out', () => {
-    const dirOf = (line: string) => (reviewGate(line) as { dir?: unknown }).dir
-    expect(dirOf('cd A || gh pr create')).toBeNull()
-    expect(dirOf('cd A; gh pr create')).toBe('A')
-    expect(dirOf('cd A && gh pr create')).toBe('A')
-    expect(dirOf('cd A; cd /abs && gh pr create')).toBe('/abs')
+  const dirsOf = (line: string, nth = 0) => (reviewChecks(line)[nth] as { dirs?: unknown } | undefined)?.dirs
+
+  test('a cd followed by || may not have happened: both directories are judged, unless the other side leaves', () => {
+    expect(dirsOf('cd A || gh pr create')).toEqual([undefined, 'A'])
+    expect(dirsOf('cd A || true; gh pr create')).toEqual([undefined, 'A'])
+    expect(dirsOf('cd A; gh pr create')).toEqual(['A'])
+    expect(dirsOf('cd A && gh pr create')).toEqual(['A'])
+    expect(dirsOf('cd A; cd /abs && gh pr create')).toEqual(['/abs'])
+    expect(dirsOf('cd A || true; cd /abs && gh pr create')).toEqual(['/abs'])
+    for (const out of ['exit', 'exit 1', 'return', 'return 2', '{ echo no; exit 1; }']) {
+      expect(dirsOf(`cd A || ${out}; gh pr create`)).toEqual(['A'])
+      expect(dirsOf(`cd A || ${out}\ngh pr create`)).toEqual(['A'])
+    }
+    expect(dirsOf('cd A || echo exit; gh pr create')).toEqual([undefined, 'A'])
+    expect(dirsOf('cd "$D" || exit; gh pr create')).toEqual([])
+    expect(dirsOf('cd "$D" || true; gh pr create')).toEqual([undefined])
   })
 
-  test('every gh pr create on the line is checked with its own base and directory', () => {
-    expect(reviewChecks('gh pr create -B feat --fill; gh pr create --fill')).toEqual([
-      { kind: 'check', base: 'feat', dir: undefined },
-      { kind: 'check', base: undefined, dir: undefined },
+  test('a cd in a subshell, a pipeline stage or a background job moves no later command', () => {
+    expect(dirsOf('(cd x; gh pr create); gh pr create -B dev', 0)).toEqual(['x'])
+    expect(dirsOf('(cd x; gh pr create); gh pr create -B dev', 1)).toEqual([undefined])
+    expect(reviewChecks('(cd x; gh pr create); gh pr create -B dev').map(c => [c.base, c.dirs])).toEqual([
+      [undefined, ['x']],
+      ['dev', [undefined]],
     ])
-    expect(reviewChecks('cd a && gh pr create -B x && cd ../b && gh pr create -B y').map(c => [c.base, c.dir])).toEqual([
-      ['x', 'a'],
-      ['y', 'a/../b'],
+    expect(dirsOf('cd x | gh pr create')).toEqual([undefined])
+    expect(dirsOf('cd x | cat; gh pr create')).toEqual([undefined])
+    expect(dirsOf('cd x & gh pr create')).toEqual([undefined])
+    expect(dirsOf('cd x & cd y; gh pr create')).toEqual(['y'])
+    expect(dirsOf('echo $(cd x); gh pr create')).toEqual([undefined])
+    expect(dirsOf('echo `cd x`; gh pr create')).toEqual([undefined])
+    expect(dirsOf('(cd x) && gh pr create')).toEqual([undefined])
+    expect(dirsOf('cd x && (gh pr create)')).toEqual(['x'])
+  })
+
+  test('every gh pr create on the line is checked with its own base and directories', () => {
+    expect(reviewChecks('gh pr create -B feat --fill; gh pr create --fill')).toEqual([
+      { kind: 'check', base: 'feat', dirs: [undefined] },
+      { kind: 'check', base: undefined, dirs: [undefined] },
+    ])
+    expect(reviewChecks('cd a && gh pr create -B x && cd ../b && gh pr create -B y').map(c => [c.base, c.dirs])).toEqual([
+      ['x', ['a']],
+      ['y', ['a/../b']],
     ])
     expect(reviewChecks('echo hi')).toEqual([])
-    expect(reviewChecks(`${REVIEW_HATCH} gh pr create; gh pr create`)).toEqual([])
+  })
+
+  test('the Hatch exempts only the gh pr create whose own prefix carries it', () => {
+    expect(reviewChecks(`${REVIEW_HATCH} gh pr create`)).toEqual([])
+    expect(reviewChecks(`env ${REVIEW_HATCH} gh pr create`)).toEqual([])
+    expect(reviewChecks(`FOO=1 ${REVIEW_HATCH} gh pr create`)).toEqual([])
+    expect(reviewChecks(`${REVIEW_HATCH} gh pr create; gh pr create -B b`).map(c => c.base)).toEqual(['b'])
+    expect(reviewChecks(`gh pr create -B a; ${REVIEW_HATCH} gh pr create`).map(c => c.base)).toEqual(['a'])
+    expect(reviewChecks(`${REVIEW_HATCH} echo hi; gh pr create`)).toHaveLength(1)
+    expect(reviewChecks(`export ${REVIEW_HATCH}; gh pr create`)).toHaveLength(1)
+    expect(reviewChecks(`(${REVIEW_HATCH} gh pr create)`)).toEqual([])
+  })
+
+  test('help among create\'s own args is no creation, but a flag\'s value that looks like help is', () => {
+    for (const line of ['gh pr create --help', 'gh pr create -h', 'gh pr create --fill -h', 'gh pr new --help --fill', 'gh -R o/r pr create -h'])
+      expect(reviewChecks(line)).toEqual([])
+    for (const line of ['gh pr create -t -h', 'gh pr create --title --help', 'gh pr create -b -h -B main', 'gh pr create -- -h'])
+      expect(reviewChecks(line)).toHaveLength(1)
   })
 
   test('--attach and --recover take a value, so a base-looking word after them is not a base', () => {
@@ -170,7 +214,7 @@ const GATE = (o: object) => ({ value: { exitCode: 0, stdout: JSON.stringify(o), 
 
 describe('the PR Gate hook', () => {
   const setup = ($: unknown, on: Parameters<typeof mock.clock>[0], answer: () => ReturnType<typeof GATE> | Promise<never>) => {
-    mock.clock(on)
+    const clock = mock.clock(on)
     const asked: { argv: readonly string[]; cwd?: string; timeoutMs?: number }[] = []
     const ran: string[] = []
     // The gate script answers as the test says; any other process (the Branch Guard's git) sees a feature branch.
@@ -186,7 +230,7 @@ describe('the PR Gate hook', () => {
       ran.push(e.command)
       return { result: { stdout: '', stderr: '', interrupted: false } }
     })
-    return { asked, ran }
+    return { asked, ran, clock }
   }
 
   test('a required Review refuses gh pr create before it runs, asking the gate with the line\'s base and directory', async ($, on) => {
@@ -236,6 +280,31 @@ describe('the PR Gate hook', () => {
     answer = () => ({ value: { exitCode: 3, stdout: '', stderr: 'boom', isStdoutTruncated: false, isStderrTruncated: false } })
     await $.tool.call({ tool: 'Bash', command: 'gh pr create' })
     expect(ran).toEqual(['gh pr create', 'gh pr create', 'gh pr create'])
+  })
+
+  test('every candidate directory is asked about, and any one that requires a Review refuses the line', async ($, on) => {
+    const { asked } = setup($, on, () => GATE({ required: asked.at(-1)?.cwd === 'A', code_lines: 31 }))
+    const denied = await $.tool.call({ tool: 'Bash', command: 'cd A || true; gh pr create' })
+    expect(denied.deny).toContain('31 changed code lines')
+    expect(asked.map(a => a.cwd)).toEqual([undefined, 'A'])
+  })
+
+  test('a second gh pr create after a subshell cd is asked about in the original directory', async ($, on) => {
+    const { asked } = setup($, on, () => GATE({ required: false, code_lines: 0 }))
+    await $.tool.call({ tool: 'Bash', command: '(cd x; gh pr create); gh pr create -B dev' })
+    expect(asked.map(a => [a.cwd, a.argv.at(-1)])).toEqual([['x', 'gate'], [undefined, 'dev']])
+  })
+
+  test('one deadline covers the whole line: what is left bounds each ask, and an expired one lets the rest through', async ($, on) => {
+    let clock: { advance: (ms: number) => Promise<unknown> } | undefined
+    const ctx = setup($, on, (async () => {
+      await clock?.advance(9000)
+      return GATE({ required: false, code_lines: 0 })
+    }) as never)
+    clock = ctx.clock
+    const r = await $.tool.call({ tool: 'Bash', command: 'gh pr create -B a; gh pr create -B b; gh pr create -B c' })
+    expect(r.deny).toBeUndefined()
+    expect(ctx.asked.map(a => [a.argv.at(-1), a.timeoutMs])).toEqual([['a', 15000], ['b', 6000]])
   })
 
   test('a directory the shell computes is not asked about', async ($, on) => {

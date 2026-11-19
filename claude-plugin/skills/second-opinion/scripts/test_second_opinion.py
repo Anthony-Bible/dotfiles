@@ -296,21 +296,112 @@ class Gate(Repo):
         self.assertLess(time.monotonic() - started, 3.0)
         self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
 
-    def test_a_branch_whose_only_code_change_is_not_utf8_is_not_required(self):
+    def test_a_non_utf8_code_file_is_counted_never_exempted(self):
+        # diff_stats skips it; the gate over-counts it, which can only deny
         with open(os.path.join(self.repo, "audio.go"), "wb") as f:
             f.write(b"\xff\xfe\n" + b"sample\n" * 40)
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "fixture")
+        self.assertTrue(self.gate()["required"])
+
+    def test_a_pure_rename_between_node_and_base_tree_still_links(self):
+        first = self.commit(30)
+        self.git("mv", "1-code.go", "moved.go")
+        self.git("commit", "-q", "-m", "mv")
+        self.ledger(*first)
+        self.ledger(first[1], self.tree())  # reviewed through the rename
+        self.assertEqual(self.gate()["required"], False)
+
+    def test_an_entry_naming_a_missing_subtree_is_ignored_not_fatal(self):
+        before, after = self.commit(30)
+        fake = "0" * 40
+        self.ledger(before, fake)
+        self.assertTrue(self.gate()["required"])
+
+    def test_an_entry_whose_snapshot_lost_an_irrelevant_subtree_is_ignored(self):
+        before, after = self.commit(30)
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.repo, env=self.env, check=True,
+                              input="package g\n", capture_output=True, text=True).stdout.strip()
+        sub = subprocess.run(["git", "mktree"], cwd=self.repo, env=self.env, check=True,
+                             input=f"100644 blob {blob}\tx.go\n", capture_output=True, text=True).stdout.strip()
+        snap = subprocess.run(["git", "mktree"], cwd=self.repo, env=self.env, check=True, capture_output=True,
+                              text=True, input=(self.git("ls-tree", before) + f"\n040000 tree {sub}\tgone\n").lstrip()
+                              ).stdout.strip()
+        os.remove(os.path.join(self.repo, ".git", "objects", sub[:2], sub[2:]))
+        self.ledger(before, snap)
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"]), (True, 30), result)
+
+    def test_ledger_entries_with_non_hex_or_abbreviated_trees_are_ignored(self):
+        before, after = self.commit(30)
+        for bad in ("main", "HEAD^{tree}", after[:10], "deadbeef\nHEAD^{tree}"):
+            self.ledger(before, bad)
+            self.ledger(bad, after)
+        self.assertTrue(self.gate()["required"])
+
+    def test_a_submodule_bump_adds_no_code_lines(self):
+        self.commit(5)
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{'a' * 40},vendor.go")
+        self.git("commit", "-q", "-m", "bump")
+        self.assertEqual(self.gate()["code_lines"], 5)
+
+    def test_non_ascii_code_paths_are_counted(self):
+        with open(os.path.join(self.repo, "\u00e9t\u00e9.go"), "w") as f:
+            f.write("".join(f"x{i}\n" for i in range(30)))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "na")
+        self.assertEqual(self.gate()["code_lines"], 30)
+
+    def test_an_orphan_branch_starts_from_the_empty_tree(self):
+        self.git("checkout", "-q", "--orphan", "lonely")
+        with open(os.path.join(self.repo, "a.go"), "w") as f:
+            f.write("".join(f"x{i}\n" for i in range(30)))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "orphan")
+        result = self.gate()
+        self.assertEqual((result["required"], result["code_lines"]), (True, 30), result)
+
+    def test_untracked_valid_scratch_code_never_breaks_a_chain(self):
+        # every snapshot carries scratch.go, no commit does
+        base = self.tree()
+        prev = base
+        scratch = os.path.join(self.repo, "scratch.go")
+        with open(scratch, "w") as f:
+            f.write("".join(f"s{i}\n" for i in range(30)))
+        for n in range(3):
+            name = os.path.join(self.repo, f"f{n}.go")
+            with open(name, "w") as f:
+                f.write("".join(f"v{i}\n" for i in range(15)))
+            self.git("add", "-A")
+            snap_tree = self.git("write-tree")
+            self.git("reset", "-q", "scratch.go")
+            self.ledger(prev, snap_tree)
+            self.git("commit", "-q", "-m", f"f{n}")
+            prev = self.tree()
         result = self.gate()
         self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
 
-    def test_a_non_utf8_change_next_to_real_code_counts_only_the_real_code(self):
-        with open(os.path.join(self.repo, "audio.go"), "wb") as f:
-            f.write(b"\xff\xfe\n" + b"sample\n" * 40)
+    def test_a_large_tree_and_long_chain_stay_fast(self):
+        import time
+        for d in range(40):
+            os.makedirs(os.path.join(self.repo, f"p{d}"))
+            for f in range(50):
+                with open(os.path.join(self.repo, f"p{d}", f"f{f}.go"), "w") as fh:
+                    fh.write(f"package p\n// {d} {f}\n")
         self.git("add", "-A")
-        self.git("commit", "-q", "-m", "fixture")
+        self.git("commit", "-q", "-m", "tree")
+        self.git("branch", "-f", "main")
+        for k in range(120):
+            before = self.tree()
+            with open(os.path.join(self.repo, f"p{k % 40}", f"f{k % 50}.go"), "a") as fh:
+                fh.write("x\n")
+            self.git("commit", "-qam", f"c{k}")
+            self.ledger(before, self.tree(), "skipped")
         self.commit(25)
-        self.assertEqual(self.gate()["code_lines"], 25)
+        started = time.monotonic()
+        result = self.gate()
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual((result["required"], result["code_lines"]), (True, 25), result)
 
     def test_a_waiver_line_in_a_commit_message_does_not_bypass(self):
         self.commit(30)
@@ -318,10 +409,20 @@ class Gate(Repo):
         self.assertTrue(self.gate()["required"])
 
     def test_an_entry_ending_at_head_but_based_on_a_foreign_tree_does_not_count(self):
+        # a foreign tree that differs from the start tree in a code path that matters (the start tree's own file)
+        self.git("checkout", "-q", "main")
+        with open(os.path.join(self.repo, "base.go"), "w") as f:
+            f.write("".join(f"b{i}\n" for i in range(10)))
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "base")
+        self.git("checkout", "-q", "-b", "feat2")
         self.commit(30)
         self.git("checkout", "-q", "-b", "side", "main")
-        foreign = self.commit(40, "other.go")[1]  # a tree 40 code lines away from the branch's start
-        self.git("checkout", "-q", "feat")
+        with open(os.path.join(self.repo, "base.go"), "w") as f:
+            f.write("".join(f"other{i}\n" for i in range(40)))
+        self.git("commit", "-qam", "foreign")
+        foreign = self.tree()
+        self.git("checkout", "-q", "feat2")
         self.ledger(foreign, self.tree())
         self.assertTrue(self.gate()["required"])
 
@@ -515,15 +616,15 @@ class Ledger(Repo):
         result = self.gate()
         self.assertEqual((result["required"], result["code_lines"]), (False, 0), result)
 
-    def test_per_commit_reviews_chain_through_an_untracked_non_utf8_scratch_file(self):
-        with open(os.path.join(self.repo, "scratch.go"), "wb") as f:
-            f.write(b"\xff\xfe raw\n")  # untracked code-extension file git takes for text
+    def test_per_commit_reviews_chain_through_an_untracked_valid_scratch_file(self):
+        with open(os.path.join(self.repo, "scratch.go"), "w") as f:
+            f.write("".join(f"s{i}\n" for i in range(30)))  # untracked, valid code, in every snapshot
         for n in range(3):
             name = f"file{n}.go"
             with open(os.path.join(self.repo, name), "w") as f:
                 f.write("".join(f"v{i}\n" for i in range(15)))
             code, _ = self.review("--auto")
-            self.assertEqual(code, 4)
+            self.assertEqual(code, 0)  # 45 snapshot lines: a real (fake-Muse) Review, not an auto-skip
             self.git("add", name)
             self.git("commit", "-q", "-m", name)
         result = self.gate()

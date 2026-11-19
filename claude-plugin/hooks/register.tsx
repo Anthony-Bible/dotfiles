@@ -891,19 +891,32 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const script = `${$.plugin.root}/skills/second-opinion/scripts/second-opinion.py`
     const reasons: string[] = []
-    for (const check of reviewChecks(e.command)) {
-      if (check.dir === null) continue // the shell computes the directory: no say
-      try {
-        const home = check.dir?.startsWith('~') ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout : ''
-        const cwd = home ? home + (check.dir as string).slice(1) : check.dir
-        const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {
-          ...(cwd ? { cwd } : {}),
-          timeoutMs: 15000,
-        })
-        const j = reviewVerdict(run, check.base)
-        if (j.kind === 'deny' && !reasons.includes(j.reason)) reasons.push(j.reason)
-      } catch {
-        // a gate that fails to run lets that pull request through
+    // One deadline for the whole line, however many pull requests and candidate directories it holds: when it
+    // runs out the rest pass unasked.
+    const deadline = (await $.clock.now()) + 15000
+    const asked = new Set<string>()
+    checks: for (const check of reviewChecks(e.command)) {
+      for (const dir of check.dirs) {
+        const key = JSON.stringify([check.base, dir])
+        if (asked.has(key)) continue
+        asked.add(key)
+        try {
+          if (deadline - (await $.clock.now()) <= 0) break checks
+          const home = dir?.startsWith('~')
+            ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'], { timeoutMs: Math.max(1, deadline - (await $.clock.now())) })).stdout
+            : ''
+          const cwd = home ? home + (dir as string).slice(1) : dir
+          const left = deadline - (await $.clock.now())
+          if (left <= 0) break checks
+          const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : [])], {
+            ...(cwd ? { cwd } : {}),
+            timeoutMs: left,
+          })
+          const j = reviewVerdict(run, check.base)
+          if (j.kind === 'deny' && !reasons.includes(j.reason)) reasons.push(j.reason)
+        } catch {
+          // a gate that fails to run lets that pull request through
+        }
       }
     }
     return reasons.length > 0 ? { deny: reasons.join('\n') } : next(e)
