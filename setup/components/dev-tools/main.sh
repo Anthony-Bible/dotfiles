@@ -113,6 +113,46 @@ install_ast_grep() {
     fi
 }
 
+install_task_status() {
+    print_status "Installing task-status"
+    # Private repo: skip proxy.golang.org/sum.golang.org, which can't see it.
+    execute "GOPRIVATE='git.tcncloud.net,github.com/anthony-bible/*' go install github.com/anthony-bible/task-status/cmd/task-status@latest"
+
+    if [[ $OS_TYPE != "Darwin" ]]; then
+        print_status "Skipping task-status LaunchAgent (macOS only)"
+        return 0
+    fi
+
+    local label="com.anthonybible.task-status"
+    local plist="$HOME/Library/LaunchAgents/$label.plist"
+    local bin
+    bin="$(go env GOPATH)/bin/task-status"
+
+    print_status "Installing task-status LaunchAgent"
+    execute mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.task-status/logs"
+    if [[ "$DRY_RUN" != "true" ]]; then
+        cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key>
+  <array><string>$bin</string><string>serve</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/.task-status/logs/serve.out</string>
+  <key>StandardErrorPath</key><string>$HOME/.task-status/logs/serve.err</string>
+</dict>
+</plist>
+EOF
+    fi
+
+    # bootout first so re-running setup picks up a rebuilt binary or edited plist.
+    execute "launchctl bootout gui/$(id -u)/$label 2>/dev/null || true"
+    execute launchctl bootstrap "gui/$(id -u)" "$plist"
+}
+
 # Component interface implementation
 check_dependencies() {
     # Check for basic tools
@@ -135,9 +175,11 @@ install_component() {
             install_wezterm
             install_aichat
             install_ast_grep
+            install_task_status
             ;;
         update)
             install_tmux  # This updates existing installation
+            install_task_status
             ;;
         remove)
             print_status "Removing dev-tools is not implemented"
