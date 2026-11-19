@@ -19,6 +19,9 @@
 // Branch Guard: a git commit on a Protected Branch, or a push that lands on one, is refused; a BRANCH_OK=1
 // line passes untouched.
 //
+// PR Gate: a `gh pr create` whose Diff has 20+ changed code lines that no second-opinion Review covers is refused;
+// a REVIEW_OK=1 line passes untouched. `git commit` is never gated.
+//
 // Floor Boss: three red runs in a row of one Check command summon a named boss above the prompt, its HP the
 // failing-test count; that command's next green run slays it for 100 CP and an Achievement.
 //
@@ -70,6 +73,7 @@ import {
 import { bossToast, checkKey, failingCount, hpBar, initialBosses, newestBoss, onBossCheck, slayAward } from '../mods/boss'
 import { branchGuard, gitSteps, type Repo } from '../mods/branch'
 import { guard, rewriteNote } from '../mods/podman'
+import { expandHome, reviewChecks, reviewVerdict } from '../mods/review-gate'
 import { DRAFTS, initialTdd, isShown, onAgent, onCheck, toggle, verdictOf } from '../mods/tdd'
 import {
   addressPrompt,
@@ -880,6 +884,52 @@ export const register: Register = on => {
     for (const dir of new Set(steps.map(s => s.dir))) repos.set(dir, await repoAt($, dir))
     const g = branchGuard(e.command, dir => repos.get(dir))
     return g.kind === 'deny' ? { deny: g.reason } : next(e)
+  }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
+
+  // --------------------------------------------------------------------------------------------- PR Gate
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const script = `${$.plugin.root}/skills/second-opinion/scripts/second-opinion.py`
+    const reasons: string[] = []
+    // One deadline for the whole line, however many pull requests and candidate directories it holds: when it
+    // runs out the rest pass unasked.
+    const deadline = (await $.clock.now()) + 15000
+    const asked = new Set<string>()
+    checks: for (const check of reviewChecks(e.command)) {
+      if (check.movesHead) {
+        // The gate reads the repository as it is now, before this line runs: a commit or checkout earlier on the
+        // line would make its verdict about the wrong tree.
+        reasons.push(
+          'An earlier command on this line (git commit, merge, rebase, checkout, ...) moves HEAD, so the PR Gate cannot judge what gh pr create will open. ' +
+            'Run the commit (or checkout) in its own Bash call, then gh pr create.',
+        )
+        continue
+      }
+      for (const dir of check.dirs) {
+        const key = JSON.stringify([check.base, check.head, dir])
+        if (asked.has(key)) continue
+        asked.add(key)
+        try {
+          if (deadline - (await $.clock.now()) <= 0) break checks
+          const home = dir === '~' || dir?.startsWith('~/')
+            ? (await $.process.run(['sh', '-c', 'printf %s "$HOME"'], { timeoutMs: Math.max(1, deadline - (await $.clock.now())) })).stdout
+            : ''
+          const cwd = expandHome(dir, home)
+          if (cwd === null) continue // another user's home is not ours to guess
+          const left = deadline - (await $.clock.now())
+          if (left <= 0) break checks
+          const run = await $.process.run(['python3', script, 'gate', ...(check.base ? ['--base', check.base] : []), ...(check.head ? ['--head', check.head] : [])], {
+            ...(cwd ? { cwd } : {}),
+            timeoutMs: left,
+          })
+          const j = reviewVerdict(run, check.base)
+          if (j.kind === 'deny' && !reasons.includes(j.reason)) reasons.push(j.reason)
+        } catch {
+          // a gate that fails to run lets that pull request through
+        }
+      }
+    }
+    return reasons.length > 0 ? { deny: reasons.join('\n') } : next(e)
   }).catch(($, e, next) => next(e)) // a broken guard fails open: the line runs as written
 
   // ----------------------------------------------------------------------------------------------- HUD

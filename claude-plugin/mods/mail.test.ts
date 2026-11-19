@@ -245,12 +245,21 @@ describe('the Bash lines Sponsor Mail reads', () => {
   test('gh pr create opens the watch; a line that only mentions it does not', () => {
     expect(isPrCreate('git push -u origin HEAD && gh pr create --fill')).toBe(true)
     expect(isPrCreate('cd x && gh pr create -t "t" -b "$(cat body.md)"')).toBe(true)
-    for (const line of ['echo "gh pr create"', 'gh pr view', 'gh pr list | grep create']) expect(isPrCreate(line)).toBe(false)
+    for (const line of ['gh -h pr create', 'gh --help pr create']) expect(isPrCreate(line)).toBe(false)
+    for (const line of ['gh pr new', '/opt/homebrew/bin/gh pr create', '/usr/bin/env gh pr create', 'gh -R o/r pr create', 'gh --repo=o/r pr create', 'gh pr -R o/r create']) {
+      expect(isPrCreate(line)).toBe(true)
+    }
+    for (const line of ['echo "gh pr create"', 'gh pr view', 'gh pr list | grep create', 'gh pr comment -b create', 'gh -R o/r pr view']) {
+      expect(isPrCreate(line)).toBe(false)
+    }
   })
 
   test('posting a comment, a review or a write through gh api is a post; reading is not', () => {
     for (const line of [
       'gh pr comment 42 --body "done"',
+      '/opt/homebrew/bin/gh pr comment -b x',
+      'gh -R o/r pr review 42 --comment -b x',
+      '/usr/bin/env gh api -X POST repos/o/r/issues/1/comments -f body=x',
       'gh pr review 42 --comment -b "x"',
       'gh api repos/{owner}/{repo}/pulls/42/comments/1/replies -f body="fixed"',
       'gh api -X PATCH repos/o/r/issues/comments/1 --input b.json',
@@ -282,9 +291,25 @@ describe('where gh pr create ran', () => {
     expect(createDirOf('cd a; cd ~/b && gh pr create')).toBe('~/b')
     expect(createDirOf('gh pr create && cd elsewhere')).toBeUndefined()
     expect(createDirOf('cd -P /tmp && gh pr create')).toBe('/tmp')
+    for (const line of ['cd x; gh pr create', 'cd x\ngh pr create', '(cd x; gh pr create)', 'cd x && git push; gh pr create', 'cd x && echo hi | tee f && gh pr create']) {
+      expect(createDirOf(line)).toBe('x')
+    }
+    expect(createDirOf('cd x || gh pr create')).toBeNull()
+    expect(createDirOf('cd x && git push || gh pr create')).toBeNull()
+    expect(createDirOf('cd x; foo || gh pr create')).toBe('x')
+    expect(createDirOf('cd "$D"; gh pr create')).toBeNull()
+    expect(createDirOf('cd x && gh pr create -B a; cd y && gh pr create', 1)).toBe('x/y')
     expect(createDirOf('cd - && gh pr create')).toBeNull()
     expect(createDirOf('cd "$DIR" && gh pr create')).toBeNull()
     expect(createDirOf('cd $(git rev-parse --show-toplevel)/x && gh pr create')).toBeNull()
+    // Sponsor Mail keeps one best directory: certain after `|| exit`, subshell and pipe cds change nothing
+    expect(createDirOf('cd x || exit 1; gh pr create')).toBe('x')
+    expect(createDirOf('cd x || return; gh pr create')).toBe('x')
+    expect(createDirOf('cd x || true; gh pr create')).toBeNull()
+    expect(createDirOf('cd x || true; cd /abs; gh pr create')).toBe('/abs')
+    expect(createDirOf('(cd x; gh pr create); gh pr create', 1)).toBeUndefined()
+    expect(createDirOf('cd x | gh pr create')).toBeUndefined()
+    expect(createDirOf('cd x & gh pr create')).toBeUndefined()
   })
 })
 

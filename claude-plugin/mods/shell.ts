@@ -56,10 +56,11 @@ export const words = (line: string): Word[] => {
     op = ''
     if (expectsValue) expectsValue = false
     else if (isCommand) {
-      const isWrapper = WRAPPERS.has(text)
+      const name = text.replace(/^.*\//, '') // /usr/bin/env is env
+      const isWrapper = WRAPPERS.has(name)
       const isWrapperFlag = wrapper !== undefined && text.startsWith('-')
       expectsValue = isWrapperFlag && (WRAPPER_VALUE_FLAGS[wrapper as string]?.has(text) ?? false)
-      wrapper = isWrapper ? text : isWrapperFlag ? wrapper : undefined
+      wrapper = isWrapper ? name : isWrapperFlag ? wrapper : undefined
       expectsCommand = ASSIGNMENT.test(text) || KEYWORDS.has(text) || isWrapper || isWrapperFlag
     }
     start = -1

@@ -20,6 +20,17 @@ unavailable, exit 4 means skipped.
 - **Before a commit or PR you are about to make:** run `review diff --auto` (use `--base <default branch>`
   for a PR). `--auto` skips the review (exit 4) when the Diff has no code files or fewer than 20 changed
   code lines. That skip is final. Commit without mentioning it.
+- **PR Gate:** `gh pr create` is refused while the branch's Diff (from the merge base) is not Covered: the
+  Ledger (`<git-common-dir>/second-opinion/ledger.jsonl`, one line per `review diff` attempt, skips and
+  unavailable included) must chain from the merge base to HEAD's tree, leaving fewer than 20 changed code
+  lines. Per-commit Reviews (`--base HEAD`) add up, so a Review of each commit passes with no further one.
+  When refused, run one whole-branch `review diff --auto --base <PR base branch> --intent …`.
+  `second-opinion.py gate [--base REF]` shows the verdict. Only the user may say to prefix `REVIEW_OK=1`.
+  `git commit` is never gated. A commit, checkout or ref move earlier on the same `gh pr create` line is refused
+  too (the gate would judge the old HEAD): run it in its own Bash call first. `--head` judges that branch, or HEAD
+  when it does not exist yet.
+  Accepted gaps (links match code by content, not path): swapped contents between paths, and a rename chain around
+  an unreviewed edit (reviewed a.go->b.go, unreviewed edit to b.go, reviewed b.go->c.go) both count as Covered.
 - **When the user asks:** run `review diff` (no `--auto`) or `review plan <file>`. A Plan Review never
   runs unless the user asks for one.
 - Run one Review at a time. Never start a Review from inside another Review.
@@ -34,6 +45,16 @@ scripts/second-opinion.py review plan PLAN.md [--intent "..."]
 Always pass `--intent`. The Reviewer judges correctness against what the change is *for*. Run it through
 Bash with a tool timeout of 600000 ms. The whole Review (the review turn plus the Rebuttal) has a 10-minute
 budget (`--timeout`). The default effort is `high`. Use `--effort xhigh` only when the user asks for depth.
+
+### Briefing the Reviewer
+
+- `--intent` states the goal, the acceptance criteria or the issue link, and constraints. It does not describe how the
+  code works or list what to probe: that anchors the Reviewer to the Author's design.
+- A Diff over about 400 code lines, or one about to become a PR: run at least one Review briefed only with the
+  issue or goal, with no design description. (`review diff` warns on stderr past 400 lines.)
+- Keep each Review small. Review per commit as you go (the Ledger chains them) rather than one huge Review at the end.
+- Review the spec or Plan itself (`review plan`) before building, asking what the user's commands or inputs can do
+  that the spec does not cover.
 
 **Exit 3 (unavailable):** muse is missing, has no credentials, errored or timed out. **Fail open.** Tell
 the user in one line (`second-opinion: Reviewer unavailable: <reason>`) and carry on with the commit. If

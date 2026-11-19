@@ -13,7 +13,11 @@ Usage (from inside the repo):
                                                              relative to REF (default HEAD); --auto applies the
                                                              pre-commit threshold and skips small or non-code Diffs
   second-opinion.py review plan PLAN.md                      Findings on a Plan, checked against the repo's code
-  second-opinion.py rebut RUN_DIR REBUTTAL.json              the one Rebuttal turn, in the same Reviewer session;
+  second-opinion.py gate [--base REF] [--head REF]        the PR Gate's check: is the branch's Diff (merge-base of REF,
+                                                             default the repo's default branch, to HEAD or --head REF) Covered by a
+                                                             chain of Ledger entries? Prints {required, reason,
+                                                             code_lines, chain_end, base}; exit 0, never writes
+  second-opinion.py rebut RUN_DIR REBUTTAL.json             the one Rebuttal turn, in the same Reviewer session;
                                                              REBUTTAL.json = [{"finding_id": 1, "argument": "..."}]
   common: [--effort high] [--timeout 600] [--intent TEXT]
 
@@ -29,14 +33,22 @@ fresh detached worktree inside the run directory (`git worktree add --detach`) a
 the outcome. (`-w create` is out: since muse 1.4.3 its sandbox may not create .git/worktrees/ entries.) Turn 2
 resumes the same session in a new worktree of the same snapshot. No branches are created.
 
+Ledger: every `review diff` attempt (reviewed, skipped or unavailable) appends one JSON line to
+<git-common-dir>/second-opinion/ledger.jsonl: {tree, base_tree, base, status, code_lines, run, at}. A failed
+write is swallowed and never changes the exit status or stdout. Plan Reviews write no entry.
+
 The 10-minute budget covers the review and the Rebuttal together. Runs are kept in <git-dir>/second-opinion/.
 Python 3.8+, stdlib only. Runs through `uv run --script` (PEP 723 metadata above); `python3 second-opinion.py`
 works too.
 """
 import argparse, json, os, re, shutil, signal, subprocess, sys, tempfile, time, uuid
 
+LEDGER_STATUSES = ("reviewed", "skipped", "unavailable")
 EXIT_OK, EXIT_USAGE, EXIT_UNAVAILABLE, EXIT_SKIPPED = 0, 2, 3, 4
 MIN_CODE_LINES = 20
+LARGE_DIFF_LINES = 400  # a Review of more code lines than this earns a warning: review per commit instead
+MAX_INNER = 15  # of those, trees a later entry builds on that are measured too
+MAX_ENDS = 100  # reachable trees the gate measures against HEAD (those with HEAD's code come first)
 PROMPT_CAP = 150_000
 NON_CODE_EXT = {".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg",
                 ".conf", ".csv", ".lock", ".sum", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf"}
@@ -170,6 +182,38 @@ def diff_stats(base, snap):
     return {"files": files, "code_files": code_files, "code_lines": code_lines, "omitted": omitted}, diff.strip()
 
 
+def diff_base(a):
+    return git("rev-parse", "HEAD") if a.base == "HEAD" else git("merge-base", a.base, "HEAD")
+
+
+def ledger_path():
+    return os.path.join(git("rev-parse", "--path-format=absolute", "--git-common-dir"), "second-opinion",
+                        "ledger.jsonl")
+
+
+def log_attempt(a, status, snap=None, base=None, stats=None, run=None):
+    """Append one Ledger line for a `review diff` attempt. Best effort: nothing here may change the outcome."""
+    try:
+        if a.target != "diff":
+            return
+        if snap is None:  # an early exit: take the snapshot now, if there is a repository to take it in
+            os.chdir(git("rev-parse", "--show-toplevel"))
+            snap = snapshot()
+        if base is None:
+            base = diff_base(a)
+        if stats is None:
+            stats = diff_stats(base, snap)[0]
+        entry = {"tree": git("rev-parse", snap + "^{tree}"), "base_tree": git("rev-parse", base + "^{tree}"),
+                 "base": base, "status": status, "code_lines": stats["code_lines"], "run": run,
+                 "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        path = ledger_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
 def remove_worktree(path):
     subprocess.run(["git", "worktree", "remove", "--force", path], capture_output=True)
     shutil.rmtree(path, ignore_errors=True)  # in case git no longer knew it as a worktree
@@ -261,17 +305,20 @@ def cmd_check(a):
 def cmd_review(a):
     found = problems()
     if found:
+        log_attempt(a, "unavailable")
         unavailable("; ".join(found))
     root = repo_root()
     os.chdir(root)
     snap = snapshot()
     intent = f"The Author's stated intent: {a.intent}\n\n" if a.intent else ""
     if a.target == "diff":
-        base = git("rev-parse", "HEAD") if a.base == "HEAD" else git("merge-base", a.base, "HEAD")
+        base = diff_base(a)
         stats, diff = diff_stats(base, snap)
         if not stats["files"]:
+            log_attempt(a, "skipped", snap, base, stats)
             out({"status": "skipped", "reason": "no changes to review"}, EXIT_SKIPPED)
         if a.auto and (not stats["code_files"] or stats["code_lines"] < MIN_CODE_LINES):
+            log_attempt(a, "skipped", snap, base, stats)
             out({"status": "skipped", "reason": f"below the auto threshold: {stats['code_lines']} changed code "
                  f"lines in {len(stats['code_files'])} code files (needs {MIN_CODE_LINES})", **stats}, EXIT_SKIPPED)
         prompt = (ROLE + f"The Review Target is a Diff: `git diff {base} HEAD` in your working directory (HEAD is "
@@ -293,19 +340,288 @@ def cmd_review(a):
                   "Plan is built as written.\n\nThe Plan:\n\n" + capped(plan, "Plan") + "\n")
     run, meta = new_run(root, a.target, a)
     meta.update(snapshot=snap, base=base, plan=a.plan if a.target == "plan" else None)
+    if a.target == "diff" and stats["code_lines"] > LARGE_DIFF_LINES:
+        meta["large_diff"] = True
+        print(f"second-opinion: this Diff has {stats['code_lines']} changed code lines (over {LARGE_DIFF_LINES}); "
+              "a Review this big finds little. Review per commit as you go: the Ledger chains the Reviews.",
+              file=sys.stderr)
     answer, error = run_muse(root, run, 1, prompt, FINDINGS_SCHEMA, meta)
     if error:
         json.dump(meta, open(os.path.join(run, "run.json"), "w"), indent=2)
+        log_attempt(a, "unavailable", snap, base, stats, run)
         unavailable(error, run=run)
     findings = [dict(f, id=i) for i, f in enumerate(answer.get("findings", []), 1)]
     meta["findings"] = findings
     json.dump(meta, open(os.path.join(run, "run.json"), "w"), indent=2)
+    log_attempt(a, "reviewed", snap, base, stats, run)
     out({"status": "ok", "run": run, "target": a.target, "snapshot": snap, "base": base, **stats,
          "findings": [dict(f, blocking=f.get("severity") not in ADVISORY) for f in findings
                       if f.get("severity") != "nit"],
          "nits_dropped": sum(f.get("severity") == "nit" for f in findings),
          "seconds": round(time.time() - meta["started"]), **({"warnings": meta["warnings"]} if "warnings" in meta
                                                               else {})})
+
+
+def ref_exists(ref):
+    return subprocess.run(["git", "rev-parse", "--verify", "-q", ref + "^{commit}"],
+                          capture_output=True).returncode == 0
+
+
+def resolve_head(name):
+    """The ref a PR's head names: the local branch, else the remote one; `owner:branch` names its branch. None when
+    neither exists."""
+    name = name.split(":", 1)[-1]
+    return next((r for r in (name, "origin/" + name) if name and ref_exists(r)), None)
+
+
+def resolve_base(name):
+    """The PR base ref to compare against: the remote branch when there is one (a local branch can be stale),
+    else the local one. Without a name: origin/HEAD, else the first of origin/main, origin/master, main, master."""
+    if name:
+        return next((r for r in ("origin/" + name, name) if ref_exists(r)), None)
+    try:
+        head = git("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD")
+        if head and ref_exists(head):
+            return head
+    except subprocess.CalledProcessError:
+        pass
+    return next((r for r in ("origin/main", "origin/master", "main", "master") if ref_exists(r)), None)
+
+
+SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+
+
+class Trees:
+    """What the gate knows about trees, each worked out once. A tree's key is an order-independent sum of the
+    blob ids of its code files, restricted to the paths in `rel` (the code paths of the start tree and of HEAD:
+    a path in neither cannot affect the PR diff, so untracked scratch files never break a link). The key ignores
+    paths, so a pure rename still links; the cost is that swapping two files' contents keys the same, an accepted
+    false link. Objects come through one long-lived `cat-file --batch`; a subtree shared by many snapshots is
+    summed once per prefix, so the cost follows the distinct subtrees and not the Ledger's length.
+    A missing tree or blob anywhere makes the key None."""
+
+    def __init__(self):
+        self.parsed, self.sums, self.blobs, self.reader, self.rel, self.dirs = {}, {}, {}, None, set(), {""}
+
+    def read(self, sha, kind):
+        """The object's bytes, or None when it is missing or not of that kind."""
+        if self.reader is None:
+            self.reader = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.reader.stdin.write(sha.encode() + b"\n")
+        self.reader.stdin.flush()
+        header = self.reader.stdout.readline().split()
+        if len(header) != 3:
+            return None
+        data = self.reader.stdout.read(int(header[2]) + 1)[:-1]
+        return data if header[1].decode() == kind else None
+
+    def entries(self, tree):
+        """[(mode, name, sha)] of a tree object; None when it is missing."""
+        if tree not in self.parsed:
+            data = self.read(tree, "tree") if SHA_RE.match(tree) else None
+            found = None
+            if data is not None:
+                found, width, at = [], len(tree) // 2, 0
+                while at < len(data):
+                    nul = data.index(b"\0", at)
+                    mode, _, name = data[at:nul].partition(b" ")
+                    found.append((mode, name.decode("utf-8", "replace"), data[nul + 1:nul + 1 + width].hex()))
+                    at = nul + 1 + width
+            self.parsed[tree] = found
+        return self.parsed[tree]
+
+    def code_paths(self, tree, prefix=""):
+        """{path: blob} of every code file under the tree (gitlinks skipped); None when anything is missing."""
+        ents = self.entries(tree)
+        if ents is None:
+            return None
+        found = {}
+        for mode, name, sha in ents:
+            if mode == b"40000":
+                sub = self.code_paths(sha, prefix + name + "/")
+                if sub is None:
+                    return None
+                found.update(sub)
+            elif mode != b"160000" and is_code(name):
+                found[prefix + name] = sha
+        return found
+
+    def restrict(self, trees):
+        """Fix `rel` to the code paths of these trees."""
+        self.rel, self.dirs, self.sums = set(), {""}, {}
+        paths = [p for t in trees for p in (self.code_paths(t) or {})]
+        for path in paths:
+            self.rel.add(path)
+            parts = path.split("/")
+            for i in range(1, len(parts)):
+                self.dirs.add("/".join(parts[:i]) + "/")
+
+    def blob_ok(self, sha):
+        if sha not in self.blobs:
+            self.blobs[sha] = self.read(sha, "blob") is not None
+        return self.blobs[sha]
+
+    def key(self, tree, prefix=""):
+        """The tree's key (an int), or None when it, or any subtree or blob it names, is missing."""
+        memo = (tree, prefix)
+        if memo not in self.sums:
+            ents = self.entries(tree)
+            total = None if ents is None else 0
+            for mode, name, sha in ents or []:
+                path = prefix + name
+                if mode == b"40000":
+                    if path + "/" not in self.dirs:  # holds no relevant path, but must exist
+                        total = None if self.entries(sha) is None else total
+                        if total is None:
+                            break
+                        continue
+                    sub = self.key(sha, path + "/")
+                    total = None if sub is None else total + sub
+                elif mode != b"160000" and path in self.rel:
+                    total = total + int(sha, 16) if self.blob_ok(sha) else None
+                if total is None:
+                    break
+            self.sums[memo] = total
+        return self.sums[memo]
+
+    def code_lines(self, old, new):
+        """Changed code lines between two trees: `git diff --numstat` with the is_code rules and the binary rule of
+        diff_stats, gitlinks (submodule bumps) left out, and only paths in `rel` (a path in neither the start tree
+        nor HEAD, such as an untracked scratch file in a snapshot, is not part of the PR diff). A non-UTF-8 text file that diff_stats skips is counted
+        here, so the gate can only over-count (deny), never under-count."""
+        if old == new:
+            return 0
+        fields = subprocess.run(["git", "diff", "--raw", "--numstat", "-z", old, new], capture_output=True,
+                                check=True).stdout.split(b"\0")
+        gitlinks, i = set(), 0
+        while i < len(fields) and fields[i].startswith(b":"):  # the raw records come first
+            meta = fields[i].split()
+            paths = 2 if meta[-1][:1] in (b"R", b"C") else 1
+            if b"160000" in meta[:2]:
+                gitlinks.update(p.decode("utf-8", "replace") for p in fields[i + 1:i + 1 + paths])
+            i += 1 + paths
+        total = 0
+        while i < len(fields) and fields[i]:
+            added, deleted, path = fields[i].decode("utf-8", "replace").split("\t", 2)
+            i += 1
+            old_path = None
+            if path == "":  # a rename or copy: the old and the new path follow
+                old_path, path = (f.decode("utf-8", "replace") for f in fields[i:i + 2])
+                i += 2
+            if (is_code(path) and added != "-" and path not in gitlinks
+                    and (path in self.rel or old_path in self.rel)):
+                total += int(added) + int(deleted)
+        return total
+
+    def close(self):
+        if self.reader is not None:
+            self.reader.kill()
+            self.reader.wait()
+
+
+def read_ledger():
+    entries = []
+    try:
+        with open(ledger_path(), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (isinstance(e, dict) and e.get("status") in LEDGER_STATUSES
+                        and all(isinstance(e.get(k), str) and SHA_RE.match(e[k]) for k in ("tree", "base_tree"))):
+                    entries.append(e)
+    except OSError:
+        pass
+    return entries
+
+
+def empty_tree():
+    return subprocess.run(["git", "hash-object", "-t", "tree", "--stdin"], input=b"", capture_output=True,
+                          check=True).stdout.decode().strip()
+
+
+def cmd_gate(a):
+    """Is the branch's Diff Covered? Start at the merge-base tree (the empty tree on an orphan branch) and follow
+    Ledger entries whose base_tree has the current tree's code (a Review snapshots the working tree, so untracked
+    scratch files ride along in one entry's tree but not in the commit the next entry is based on), to the chain end
+    that leaves the fewest uncovered code lines. Plumbing only: never writes."""
+    result = {"required": False, "code_lines": 0, "chain_end": None, "base": a.base}
+    trees = Trees()
+    try:
+        git("rev-parse", "--verify", "-q", "HEAD^{commit}")
+        base = resolve_base(a.base)
+        if base is None:
+            out({**result, "reason": f"no base branch found ({a.base or 'no origin/HEAD, origin/main, origin/master, main or master'})"})
+        result["base"] = base
+        tip, note = "HEAD", ""
+        if a.head:
+            if a.head.startswith("-"):
+                out({**result, "head": a.head, "reason": f"head {a.head} is not a branch name: not judged"})
+            tip = resolve_head(a.head)
+            if tip is None:  # e.g. pushed by this very command line, so it does not exist yet
+                tip, note = "HEAD", f"head {a.head} is not a branch this checkout has (yet): judged HEAD instead. "
+            result["head"] = tip
+        try:
+            mb = git("merge-base", base, tip)
+            start = git("rev-parse", mb + "^{tree}")
+        except subprocess.CalledProcessError:  # no common history: everything on the branch is new
+            mb, start = None, empty_tree()
+        candidate = git("rev-parse", tip + "^{tree}")
+        remaining = {}
+
+        def left(tree):
+            if tree not in remaining:
+                remaining[tree] = trees.code_lines(tree, candidate)
+            return remaining[tree]
+
+        trees.restrict([start, candidate])
+        total = left(start)
+        if total < MIN_CODE_LINES:
+            out({**result, "reason": note + f"below the threshold: {total} changed code lines", "code_lines": total,
+                 "chain_end": start})
+        by_key, recency = {}, {}
+        for n, e in enumerate(read_ledger()):
+            k = trees.key(e["base_tree"])
+            if k is not None and trees.key(e["tree"]) is not None:
+                by_key.setdefault(k, set()).add(e["tree"])
+                recency[e["tree"]] = n
+        seen, todo, depth = {start}, [start], {start: 0}
+        while todo and len(seen) < 2000:
+            node = todo.pop()
+            fresh = [n for n in by_key.get(trees.key(node), ()) if n not in seen]
+            for nxt in fresh:
+                seen.add(nxt)
+                todo.append(nxt)
+                depth[nxt] = depth[node] + 1
+        # Any reachable tree may be the last one reviewed (a later entry can be an abandoned Review or another
+        # branch's): measure the ones with HEAD's code first, then chain ends (furthest along, then newest), then a few that later entries build on (an abandoned or other
+        # branch's Review can sit after the reviewed tree), capped.
+        same = trees.key(candidate)
+        leaf = {t: not any(n != t for n in by_key.get(trees.key(t), ())) for t in seen}
+        order = sorted(seen, key=lambda t: (trees.key(t) != same, not leaf[t], -depth[t], -recency.get(t, -1)))
+        inner = [t for t in order if not leaf[t] and trees.key(t) != same]
+        order = [t for t in order if leaf[t] or trees.key(t) == same] + inner[:MAX_INNER]
+        best = start
+        for t in order[:MAX_ENDS]:
+            try:
+                if left(t) < left(best):
+                    best = t
+                if left(best) == 0:
+                    break
+            except subprocess.CalledProcessError:  # an object git cannot read: this end is unusable
+                continue
+        n = left(best)
+        out({**result, "required": n >= MIN_CODE_LINES, "code_lines": n, "chain_end": best,
+             "reason": note + (f"Covered: {n} uncovered code lines of {total}" if n < MIN_CODE_LINES
+                                  else f"{n} changed code lines no Review covers")})
+    except subprocess.CalledProcessError:
+        out({**result, "reason": "not a git repository with a commit, or git failed"})
+    except Exception as e:  # fail open
+        out({**result, "reason": f"internal error: {type(e).__name__}: {e}"})
+    finally:
+        trees.close()
 
 
 def cmd_rebut(a):
@@ -363,6 +679,7 @@ def main():
     d = rs.add_parser("diff", parents=[common]); d.add_argument("--base", default="HEAD")
     d.add_argument("--auto", action="store_true"); d.set_defaults(fn=cmd_review)
     pl = rs.add_parser("plan", parents=[common]); pl.add_argument("plan"); pl.set_defaults(fn=cmd_review)
+    p = sub.add_parser("gate"); p.add_argument("--base"); p.add_argument("--head"); p.set_defaults(fn=cmd_gate)
     p = sub.add_parser("rebut"); p.add_argument("run"); p.add_argument("rebuttal"); p.set_defaults(fn=cmd_rebut)
     a = ap.parse_args()
     for path in ("plan", "run", "rebuttal"):
