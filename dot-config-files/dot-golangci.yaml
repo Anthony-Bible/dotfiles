@@ -420,7 +420,6 @@ linters:
     # Default: []
     presets:
       - std-error-handling
-      - common-false-positives
     # Excluding configuration per-path, per-linter, per-text and per-source.
     rules:
       - source: 'TODO'
@@ -442,7 +441,6 @@ linters:
           - errcheck
           - funlen
           - goconst
-          - gosec
           - noctx
           - wrapcheck
 
