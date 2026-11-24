@@ -224,7 +224,7 @@ update_managed_section() {
     local content_file="$2"
     local marker_start="${3:-"# === BEGIN DOTFILES MANAGED SECTION ==="}"
     local marker_end="${4:-"# === END DOTFILES MANAGED SECTION ==="}"
-    local sed_cmd
+    local sed_cmd work_file
     sed_cmd=$(setup_sed)
 
     if [[ ! -f "$content_file" ]]; then
@@ -232,28 +232,86 @@ update_managed_section() {
         return 1
     fi
 
+    # Edit a copy and move it into place, so a failure can't lose the existing section
+    work_file="$(mktemp "$target_file.XXXXXX")"
+    # shellcheck disable=SC2064 # expand now: work_file is local
+    trap "rm -f $(printf '%q' "$work_file")" EXIT
     if [[ -f "$target_file" ]]; then
+        cp -p "$target_file" "$work_file"
         if grep -q "$marker_start" "$target_file"; then
             verbose "Updating managed section in $target_file"
             # Remove existing section
-            $sed_cmd -i "/$marker_start/,/$marker_end/d" "$target_file"
+            $sed_cmd -i "/$marker_start/,/$marker_end/d" "$work_file"
         else
             verbose "Appending managed section to $target_file"
         fi
     else
         verbose "Creating new file $target_file"
-        touch "$target_file"
+        chmod 644 "$work_file"
     fi
+
+    # Drop trailing blank lines so repeated runs don't accumulate them
+    $sed_cmd -i -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' "$work_file"
 
     # Append new section
     {
-        echo ""
+        if [[ -s "$work_file" ]]; then echo ""; fi
         echo "$marker_start"
         cat "$content_file"
         echo "$marker_end"
-    } >> "$target_file"
+    } >> "$work_file"
+    mv "$work_file" "$target_file"
+    trap - EXIT
 
     print_status "Updated $target_file with managed section from $(basename "$content_file")"
+}
+
+# Symlink each rule file into a target directory and prune dead links to removed rules.
+# Local rules and unrelated symlinks are left alone.
+link_claude_rules() {
+    local source_dir="$1"
+    local target_dir="$2"
+    local src dest rel backup
+
+    if [[ ! -d "$source_dir" ]]; then
+        print_warning "$source_dir not found, skipping Claude rules setup"
+        return 0
+    fi
+
+    print_status "Linking Claude rules into $target_dir"
+    mkdir -p "$target_dir"
+
+    while IFS= read -r -d '' src; do
+        # Skip shared symlinks that are broken in the checkout
+        [[ -e "$src" ]] || continue
+        rel="${src#"$source_dir"/}"
+        dest="$target_dir/$rel"
+        mkdir -p "$(dirname "$dest")"
+        if [[ -L "$dest" && "$(readlink "$dest")" == "$src" ]]; then
+            continue
+        fi
+        if [[ -L "$dest" && "$(readlink "$dest")" == */.claude/rules/"$rel" ]]; then
+            # Our own link to a checkout that moved
+            rm "$dest"
+        elif [[ -L "$dest" ]] || { [[ -e "$dest" ]] && ! cmp -s "$src" "$dest"; }; then
+            # Back up local edits and links outside the directory Claude Code loads rules from
+            mkdir -p "$target_dir-backup"
+            backup="$(mktemp -d "$target_dir-backup/XXXXXX")"
+            mv "$dest" "$backup/"
+            print_warning "$dest differed from the shared rule; moved to $backup"
+        fi
+        ln -sfn "$src" "$dest"
+    done < <(find "$source_dir" \( -type f -o -type l \) -print0)
+
+    while IFS= read -r -d '' dest; do
+        # Match any checkout path, so links left by a moved checkout are pruned too
+        if [[ ! -e "$dest" && "$(readlink "$dest")" == */.claude/rules/"${dest#"$target_dir"/}" ]]; then
+            rm "$dest"
+            print_status "Removed dead rule link $dest"
+        fi
+    done < <(find "$target_dir" -type l -print0)
+
+    print_success "Claude rules setup complete"
 }
 
 # Copy agent files to a target directory

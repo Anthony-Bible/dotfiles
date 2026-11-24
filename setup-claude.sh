@@ -69,18 +69,8 @@ else
     print_warning "$PLUGIN_SKILLS_DIR not found, skipping Gemini skills setup"
 fi
 
-# Setup Claude rules
-CLAUDE_RULES_SOURCE="$DOTFILESDIR/.claude/rules"
-CLAUDE_RULES_TARGET="$HOME/.claude/rules"
-if [[ -d "$CLAUDE_RULES_SOURCE" ]]; then
-    print_status "Setting up Claude rules"
-    mkdir -p "$CLAUDE_RULES_TARGET"
-    # Use -r to preserve directory structure (e.g. conductor/ subfolder)
-    cp -r "$CLAUDE_RULES_SOURCE"/. "$CLAUDE_RULES_TARGET/"
-    print_success "Claude rules setup complete"
-else
-    print_warning "$CLAUDE_RULES_SOURCE not found, skipping Claude rules setup"
-fi
+# Link Claude rules, so edits and pulls apply without rerunning this script
+link_claude_rules "$DOTFILESDIR/.claude/rules" "$HOME/.claude/rules"
 
 # Transform Gemini agents to remove color:, model:, quote descriptions, and add max_turns
 GEMINI_AGENTS_DIR="$HOME/.gemini/agents"
@@ -109,15 +99,19 @@ if [[ -d "$GEMINI_AGENTS_DIR" ]]; then
     done
 fi
 
-# Setup global CLAUDE.md and gemini.md
-CLAUDE_MD_DOTFILES="$DOTFILESDIR/.claude/CLAUDE.md.dotfiles"
-CLAUDE_MD_TARGET="$HOME/.claude/CLAUDE.md"
-if [[ -f "$CLAUDE_MD_DOTFILES" ]]; then
-    update_managed_section "$CLAUDE_MD_TARGET" "$CLAUDE_MD_DOTFILES"
+# Setup global CLAUDE.md: import the shared file instead of copying it, so a pull is enough to sync
+CLAUDE_MD_SHARED="$DOTFILESDIR/claude/global.md"
+if [[ -f "$CLAUDE_MD_SHARED" ]]; then
+    CLAUDE_MD_IMPORT="$(mktemp)"
+    # Claude Code needs spaces in import paths backslash-escaped
+    printf '@%s\n' "${CLAUDE_MD_SHARED// /\\ }" > "$CLAUDE_MD_IMPORT"
+    update_managed_section "$HOME/.claude/CLAUDE.md" "$CLAUDE_MD_IMPORT"
+    rm -f "$CLAUDE_MD_IMPORT"
 else
-    print_warning "$CLAUDE_MD_DOTFILES not found, skipping CLAUDE.md setup"
+    print_warning "$CLAUDE_MD_SHARED not found, skipping CLAUDE.md setup"
 fi
 
+# Setup gemini.md
 GEMINI_MD_DOTFILES="$DOTFILESDIR/.gemini/gemini.md.dotfiles"
 GEMINI_MD_TARGET="$HOME/.gemini/GEMINI.md"
 if [[ -f "$GEMINI_MD_DOTFILES" ]]; then

@@ -147,6 +147,7 @@ claude plugin validate .
 
 ```
 .claude-plugin/          # Claude Code marketplace definition
+claude/global.md         # Shared global CLAUDE.md, imported by ~/.claude/CLAUDE.md
 claude-plugin/           # Claude Code plugin (dotfiles-dev-tools)
 configuration.nix        # NixOS or Home Manager configuration
 flake.nix                # Nix flake for reproducible setup
@@ -160,6 +161,10 @@ nvim/                    # Neovim configuration (Lua)
 tmux/                    # Tmux and tmuxp configuration
 wezterm/                 # WezTerm configuration
 ```
+
+## Global Claude Instructions
+
+`setup-claude.sh` makes `~/.claude/CLAUDE.md` import `claude/global.md` and symlinks `.claude/rules/` into `~/.claude/rules/`. Edit those sources, never the managed section. On other machines `git pull` is enough for edits; rerun `setup-claude.sh` when rule files are added, renamed or removed, or the checkout moves. Keep machine-specific notes outside the managed section.
 
 ## Zsh Functions
 
