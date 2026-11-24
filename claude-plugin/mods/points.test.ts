@@ -10,6 +10,7 @@ import {
   limitSegments,
   RATE_LIMIT_SHOWN_FROM,
   RETREAT_BELOW,
+  folderLabel,
   statusLine,
   type Award,
   type Score,
@@ -162,6 +163,31 @@ describe('level and status line', () => {
       const cp = `${session.toLocaleString('en-US')} CP (${allTime.toLocaleString('en-US')} total)`
       expect(line.startsWith(`🎟 ${cp} · Lv `)).toBe(true)
     }
+  })
+})
+
+describe('the folder on the HUD', () => {
+  test('a folder in home starts with ~ and expands back to itself; any other is shown whole', () => {
+    const r = rng(17)
+    const names = ['anthony', 'anthony2', 'dotfiles', 'a b', '~', 'é']
+    const path = () => Array.from({ length: Math.floor(r() * 4) }, () => `/${pick(r, names)}`).join('')
+    for (let i = 0; i < RUNS; i++) {
+      const home = `/Users/${pick(r, names)}`
+      const inside = home + path()
+      const label = folderLabel(inside, home)
+      expect(label.startsWith('~')).toBe(true)
+      expect(home + label.slice(1)).toBe(inside)
+      expect(folderLabel(inside, `${home}/`)).toBe(label)
+      for (const outside of [`${home}x${path()}`, `/opt${path()}`]) expect(folderLabel(outside, home)).toBe(outside)
+      expect(folderLabel(inside, undefined)).toBe(inside)
+    }
+    expect(folderLabel('/', '/Users/a')).toBe('/')
+  })
+
+  test('it follows the level, and an unknown folder leaves no gap', () => {
+    const score = { session: 40, streak: 1 }
+    expect(statusLine(score, 0, undefined, '~/x')).toBe('🎟 40 CP (0 total) · Lv 1 · 📁 ~/x · 🔥1')
+    expect(statusLine(score, 0)).toBe('🎟 40 CP (0 total) · Lv 1 · 🔥1')
   })
 })
 

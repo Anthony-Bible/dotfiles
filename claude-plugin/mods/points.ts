@@ -168,10 +168,19 @@ export const limitSegments = (rateLimits: Usage['rateLimits']): string[] => [
     .map(segment),
 ]
 
-export const statusLine = (score: Score, allTime: number, usage?: Usage): string =>
+/** A directory as the HUD shows it: `~` for the home directory, and the whole path anywhere else. */
+export const folderLabel = (cwd: string, home?: string): string => {
+  const h = home?.replace(/\/+$/, '')
+  if (!h) return cwd
+  return cwd === h || cwd.startsWith(`${h}/`) ? `~${cwd.slice(h.length)}` : cwd
+}
+
+/** The HUD's text. The folder comes early, so a narrow terminal cuts the usage off before it. */
+export const statusLine = (score: Score, allTime: number, usage?: Usage, folder?: string): string =>
   [
     `🎟 ${score.session.toLocaleString('en-US')} CP (${allTime.toLocaleString('en-US')} total)`,
     `Lv ${level(allTime)}`,
+    folder ? `📁 ${folder}` : undefined,
     score.streak > 0 ? `🔥${score.streak}` : undefined,
     score.debuff ? `Debuff: ${score.debuff}` : undefined,
     usage?.contextPercent !== undefined ? `ctx ${Math.round(usage.contextPercent)}%` : undefined,

@@ -84,8 +84,9 @@ describe('Crawler Points scores tool calls', () => {
     on('session.usage', async () => ({ value: { context: {}, rateLimits: [] } as never }))
     seen.store.set('crawler-points.allTime', 16325)
 
-    await $.classic.SessionStart({ source: 'clear' })
-    expect(seen.statuses.at(-1)).toBe('🎟 0 CP (16,325 total) · Lv 13')
+    mock.env(on, { HOME: '/home/me' })
+    await $.classic.SessionStart({ source: 'clear', cwd: '/home/me/x' })
+    expect(seen.statuses.at(-1)).toBe('🎟 0 CP (16,325 total) · Lv 13 · 📁 ~/x')
 
     await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
     expect(seen.store.get('crawler-points.allTime')).toBe(16325 + sessionCp(seen))
@@ -108,6 +109,77 @@ describe('Crawler Points scores tool calls', () => {
     bash(on, () => true)
     await $.tool.call({ tool: 'Bash', command: 'rg needle' })
     expect(seen.statuses).toEqual([])
+  })
+})
+
+describe('the folder on the HUD', () => {
+  const setup = (on: On, moving: (cwd: string) => Promise<void> = async () => {}) => {
+    mock.clock(on)
+    mock.env(on, { HOME: '/home/me' })
+    const seen = watch(on)
+    on('session.usage', async () => ({ value: { context: {}, rateLimits: [] } as never }))
+    on('classic.SessionStart', async () => ({}))
+    on('classic.CwdChanged', async (_$, e) => {
+      await moving(e.new_cwd)
+      return {}
+    })
+    return seen
+  }
+
+  test('the main session moving shows its path from home; a subagent moving shows nothing', async ($, on) => {
+    const seen = setup(on)
+    await $.classic.SessionStart({ source: 'clear', cwd: '/home/me' })
+    expect(seen.statuses.at(-1)).toContain('📁 ~')
+    await $.classic.CwdChanged({ old_cwd: '/home/me', new_cwd: '/home/me/dotfiles/lib' })
+    expect(seen.statuses.at(-1)).toContain('📁 ~/dotfiles/lib')
+    await $.classic.CwdChanged({ old_cwd: '/home/me', new_cwd: '/tmp/wt', agent_id: 'a1' })
+    expect(seen.statuses.at(-1)).toContain('📁 ~/dotfiles/lib')
+    await $.classic.CwdChanged({ old_cwd: '/home/me', new_cwd: '/opt/x' })
+    expect(seen.statuses.at(-1)).toContain('📁 /opt/x')
+  })
+
+  test("a subagent's directory stays off the HUD at later redraws too", async ($, on) => {
+    const seen = setup(on)
+    bash(on, () => true)
+    await $.classic.SessionStart({ source: 'clear', cwd: '/home/me/a' })
+    await $.classic.CwdChanged({ old_cwd: '/home/me/a', new_cwd: '/tmp/wt', agent_id: 'a1' })
+    await $.classic.SessionStart({ source: 'resume', cwd: '/tmp/wt', agent_id: 'a1' })
+    const drawn = seen.statuses.length
+    await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
+    expect(seen.statuses.length).toBeGreaterThan(drawn)
+    expect(seen.statuses.at(-1)).toContain('📁 ~/a')
+  })
+
+  test('the later of two overlapping moves shows, whichever settles first', async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(done => (release = done))
+    const seen = setup(on, async cwd => {
+      if (cwd.endsWith('/a')) await held
+    })
+    const first = $.classic.CwdChanged({ old_cwd: '/home/me', new_cwd: '/home/me/a' })
+    await $.classic.CwdChanged({ old_cwd: '/home/me/a', new_cwd: '/home/me/b' })
+    release()
+    await first
+    expect(seen.statuses.at(-1)).toContain('📁 ~/b')
+  })
+
+  test('resuming a session elsewhere shows its folder at once', async ($, on) => {
+    const seen = setup(on)
+    await $.classic.SessionStart({ source: 'clear', cwd: '/home/me/a' })
+    await $.classic.SessionStart({ source: 'resume', cwd: '/home/me/b' })
+    expect(seen.statuses.at(-1)).toContain('📁 ~/b')
+  })
+
+  test('a move no event announced shows once the main turn ends, and never at a subagent turn', async ($, on) => {
+    const seen = setup(on)
+    on('session.cwd', async () => ({ value: '/home/me/wt' }))
+    on('turn.complete', async (_$, e) => ({ text: e.answer }))
+    const done = { answer: 'done', durationMs: 1000, isAborted: false, turnId: 't', reason: 'answer' } as const
+    await $.classic.SessionStart({ source: 'clear', cwd: '/home/me' })
+    await $.turn.complete({ ...done, agentId: 'a1' })
+    expect(seen.statuses.at(-1)).not.toContain('wt')
+    await $.turn.complete(done)
+    expect(seen.statuses.at(-1)).toContain('📁 ~/wt')
   })
 })
 

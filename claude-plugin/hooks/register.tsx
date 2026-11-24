@@ -63,6 +63,7 @@ import {
   dispatchAward,
   errorAward,
   fallbackToast,
+  folderLabel,
   QUIP_SYSTEM,
   quipPrompt,
   statusLine,
@@ -189,6 +190,9 @@ let isQuipBusy = false
 let quipAt = -Infinity
 /** The session's usage as the last `session.measure` reported it, for the HUD. */
 let usage: Usage | undefined
+/** The main session's folder, for the HUD. Kept here: read inside a subagent's hook, the directory is its own. */
+let folder: string | undefined
+let home: string | undefined
 /** The main loop's turn in progress: what it scored and how many tool calls it made; undefined between turns. */
 let turn: Omit<TurnStats, 'durationMs'> | undefined
 /** This turn's Spinner Word, picked once at its start so the spinner does not flicker between words. */
@@ -410,9 +414,21 @@ const MOOD_COLOR = { good: 'green', bad: 'red', waiting: 'gray' } as const
 
 // -------------------------------------------------------------------------------------- Crawler Points
 
+async function setFolder($: EngineInterface, cwd: string): Promise<void> {
+  folder = cwd // before any await, so overlapping moves land in the order they came
+  home ??= await $.env.get('HOME').catch(() => undefined)
+}
+
+/** Catches a move no event announced, such as into a worktree. Called from the main session's hooks only. */
+async function refreshFolder($: EngineInterface): Promise<void> {
+  const before = folder
+  await setFolder($, await $.session.cwd())
+  if (folder !== before) await showScore($)
+}
+
 async function showScore($: EngineInterface): Promise<void> {
   const b = await read($, beast)
-  const hud = statusLine(await read($, score), await read($, allTime), usage)
+  const hud = statusLine(await read($, score), await read($, allTime), usage, folder && folderLabel(folder, home))
   $.ui.status(b.isAwake && b.reading ? `${hud} · ${beastSegment(b.reading)}` : hud)
 }
 
@@ -793,6 +809,7 @@ async function verdict($: EngineInterface, stats: TurnStats): Promise<string> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    await setFolder($, e.cwd)
     await startPoints($)
     await startBoard($)
     await $.command.register({ name: 'tdd', description: 'Show or hide the TDD Band above the prompt' })
@@ -940,6 +957,14 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('classic.CwdChanged', async ($, e, next) => {
+    if (e.agent_id) return next(e)
+    await setFolder($, e.new_cwd) // before next, which may settle out of order
+    const r = await next(e)
+    await showScore($).catch(() => undefined)
+    return r
+  }).catch(($, e, next) => next(e))
+
   on('session.compact', async ($, e, next) => {
     const r = await next(e)
     if (e.agentId || r.skip !== undefined) return r
@@ -954,9 +979,13 @@ export const register: Register = on => {
   // and the Cue written again here.
   on('classic.SessionStart', async ($, e, next) => {
     const r = await next(e)
+    const before = folder
+    if (!e.agent_id) await setFolder($, e.cwd)
     if (e.source === 'clear') {
       await startPoints($)
       await startCues($)
+    } else if (before !== undefined && folder !== before) {
+      await showScore($) // resumed elsewhere; at startup (nothing before) session.start draws
     }
     return r
   }).catch(($, e, next) => next(e))
@@ -1096,6 +1125,7 @@ export const register: Register = on => {
     if (e.agentId) return r
     turn = undefined
     spinner = undefined
+    await refreshFolder($).catch(() => undefined)
     if (!stats || e.reason !== 'answer' || !isNotable(stats)) return r
     const text = await verdict($, stats)
     await announceCue($, { kind: 'verdict', text })
