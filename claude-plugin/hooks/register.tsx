@@ -958,10 +958,10 @@ export const register: Register = on => {
   })
 
   on('classic.CwdChanged', async ($, e, next) => {
+    if (e.agent_id) return next(e)
+    await setFolder($, e.new_cwd) // before next, which may settle out of order
     const r = await next(e)
-    if (e.agent_id) return r
-    await setFolder($, e.new_cwd)
-    await showScore($)
+    await showScore($).catch(() => undefined)
     return r
   }).catch(($, e, next) => next(e))
 

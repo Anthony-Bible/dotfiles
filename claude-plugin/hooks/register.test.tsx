@@ -113,13 +113,16 @@ describe('Crawler Points scores tool calls', () => {
 })
 
 describe('the folder on the HUD', () => {
-  const setup = (on: On) => {
+  const setup = (on: On, moving: (cwd: string) => Promise<void> = async () => {}) => {
     mock.clock(on)
     mock.env(on, { HOME: '/home/me' })
     const seen = watch(on)
     on('session.usage', async () => ({ value: { context: {}, rateLimits: [] } as never }))
     on('classic.SessionStart', async () => ({}))
-    on('classic.CwdChanged', async () => ({}))
+    on('classic.CwdChanged', async (_$, e) => {
+      await moving(e.new_cwd)
+      return {}
+    })
     return seen
   }
 
@@ -145,6 +148,19 @@ describe('the folder on the HUD', () => {
     await $.tool.call({ tool: 'Bash', command: 'go test ./...' })
     expect(seen.statuses.length).toBeGreaterThan(drawn)
     expect(seen.statuses.at(-1)).toContain('📁 ~/a')
+  })
+
+  test('the later of two overlapping moves shows, whichever settles first', async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(done => (release = done))
+    const seen = setup(on, async cwd => {
+      if (cwd.endsWith('/a')) await held
+    })
+    const first = $.classic.CwdChanged({ old_cwd: '/home/me', new_cwd: '/home/me/a' })
+    await $.classic.CwdChanged({ old_cwd: '/home/me/a', new_cwd: '/home/me/b' })
+    release()
+    await first
+    expect(seen.statuses.at(-1)).toContain('📁 ~/b')
   })
 
   test('resuming a session elsewhere shows its folder at once', async ($, on) => {
