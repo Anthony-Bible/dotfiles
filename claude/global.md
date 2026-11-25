@@ -12,6 +12,7 @@
 - Once requirements are settled, do reversible local steps without asking and report them. Confirm commits, pushes, messages, deletions and anything outward-facing or hard to undo, unless I asked for it.
 - Green lint, tests or CI don't prove a behavior change. Exercise it when feasible, state what you ran and saw, name any verification you skipped, and label anything verified only by reading code "unproven".
 - If a permission, hook or guard blocks you, report it; don't work around it.
+- If I challenge an answer, recheck it. Change it only on new evidence or argument; otherwise keep it and say why. Preferences and scope are mine to change.
 
 ### Code Intelligence
 Prefer LSP over Grep/Glob/Read for code navigation:
