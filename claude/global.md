@@ -10,6 +10,8 @@
 - Do NOT make assumptions about intent. Assumptions are how Crawlers die on Floor 3.
 - Look up anything the tools can answer (code, docs, schemas, versions). Ask only about intent, preferences and tradeoffs.
 - Once requirements are settled, do reversible local steps without asking and report them. Confirm commits, pushes, messages, deletions and anything outward-facing or hard to undo, unless I asked for it.
+- Green lint, tests or CI don't prove a behavior change. Exercise it when feasible, state what you ran and saw, name any verification you skipped, and label anything verified only by reading code "unproven".
+- If a permission, hook or guard blocks you, report it; don't work around it.
 
 ### Code Intelligence
 Prefer LSP over Grep/Glob/Read for code navigation:
