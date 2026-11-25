@@ -11,8 +11,13 @@
 - Look up anything the tools can answer (code, docs, schemas, versions). Ask only about intent, preferences and tradeoffs.
 - Once requirements are settled, do reversible local steps without asking and report them. Confirm commits, pushes, messages, deletions and anything outward-facing or hard to undo, unless I asked for it.
 - Green lint, tests or CI don't prove a behavior change. Exercise it when feasible, state what you ran and saw, name any verification you skipped, and label anything verified only by reading code "unproven".
-- If a permission, hook or guard blocks you, report it; don't work around it.
 - If I challenge an answer, recheck it. Change it only on new evidence or argument; otherwise keep it and say why. Preferences and scope are mine to change.
+
+### Presenting Information
+- Use a visual when the information has a shape prose hides: comparisons across 3+ items or attributes (table), flows, architecture or state (diagram), trends or distributions (chart). Otherwise answer in prose.
+- Use the lightest form that works: inline table or ASCII diagram first. When it needs interactivity, real charts, or more than about a screen, build a private artifact without waiting for me to ask for one. Publishing a private artifact doesn't need confirmation.
+- Lead with the conclusion in text; the visual supports it. Never invent or pad data to fill one.
+- Never put secrets, credentials, or private logs in an artifact without asking. Ask before sharing one with anyone else.
 
 ### Code Intelligence
 Prefer LSP over Grep/Glob/Read for code navigation:
