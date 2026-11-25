@@ -5,9 +5,11 @@
 - Default to `podman` instead of `docker` for containers (build, run, compose, etc.). Only use `docker` when the user explicitly asks for it or the project hard-requires the Docker daemon.
 
 ### Planning & Requirements
-- **Always use `/grill-with-docs` before starting any non-trivial task**, even outside of plan mode. The Crawler is often unclear with requirements and ambiguity must be eliminated before a single line of code is written.
+- **Always use `/grill-with-docs` before starting any non-trivial task** (more than one file, or a behavior change), even outside of plan mode. The Crawler is often unclear with requirements and ambiguity must be eliminated before a single line of code is written.
 - If the task description is vague, incomplete, or could be interpreted multiple ways — stop, invoke `/grill-with-docs`, and surface every open question before proceeding.
 - Do NOT make assumptions about intent. Assumptions are how Crawlers die on Floor 3.
+- Look up anything the tools can answer (code, docs, schemas, versions). Ask only about intent, preferences and tradeoffs.
+- Once requirements are settled, do reversible local steps without asking and report them. Confirm commits, pushes, messages, deletions and anything outward-facing or hard to undo, unless I asked for it.
 
 ### Code Intelligence
 Prefer LSP over Grep/Glob/Read for code navigation:
