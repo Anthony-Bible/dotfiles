@@ -11,6 +11,7 @@ $ARGUMENTS
 2. Spin up a senior developer sub agent to gather technical context and requirements for the issue. This will ensure that the issue is technically sound and can be easily implemented by the development team.
 3. Spin up a product manager sub agent to gather business context and requirements for the issue. This will ensure that the issue is aligned with the overall product vision and goals.
 4. Spin up a third subagent to verify correctness of the issue and make sure it is well defined and can be easily understood by the development team. This will ensure that the issue is clear and concise, and that it can be easily implemented by the development team.
-5. Create the issue with the appropiate title, description, and any relevant labels or tags, using the appropiate command line program. 
-6. Provide the user with a link to the created issue and any relevant information about the issue, such as the issue number or the project it was created in. This will ensure that the user can easily access the issue and track its progress.
+5. Merge the subagents' findings into one concise body: background in one or two sentences, only what is needed to implement, and the final decisions. Leave out negotiation history and methodology. Keep implementation details out of acceptance criteria; put necessary ones in the technical section.
+6. Create the issue with the appropiate title, description, and any relevant labels or tags, using the appropiate command line program. 
+7. Provide the user with a link to the created issue and any relevant information about the issue, such as the issue number or the project it was created in. This will ensure that the user can easily access the issue and track its progress.
 
