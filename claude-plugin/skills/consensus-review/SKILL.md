@@ -95,6 +95,10 @@ Lens: OPTIMIZER & CLEANER. Look for:
 - Simplification: needless abstraction or indirection, dead code, redundant conditionals or state,
   over-defensive checks the types already guarantee, code that could use a standard-library facility,
   logic at the wrong altitude (a layer doing work that belongs to its caller or callee).
+  Before reporting a needless abstraction, apply the deletion test: inline it mentally into its callers.
+  Report it only if the complexity disappears rather than reappearing across callers, and say so in the
+  failure_scenario: name the deletion test, the callers and what disappears. Don't report a consumer-side
+  interface used as a real boundary, or a boundary a framework or test seam requires, however shallow.
 - Efficiency: repeated work in loops (N+1 queries, repeated parsing/allocation, O(n^2) where O(n) is
   easy), unbounded growth, missing batching, blocking I/O on hot paths, needless copies.
 Severity reflects real impact: a hot-path N+1 can be high, a three-line duplicate is low. Every fix must
